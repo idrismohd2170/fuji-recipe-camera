@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "Fuji Recipe Camera",
+    "slug": "fuji-recipe-camera",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "fuji-recipe-camera",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Fuji Recipe Camera to use your camera to compose and capture photos.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Fuji Recipe Camera to view photos you choose.",
+          "savePhotosPermission": "Allow Fuji Recipe Camera to save recipe-look photos to your gallery.",
+          "granularPermissions": ["photo"]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

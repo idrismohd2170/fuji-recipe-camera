@@ -1,0 +1,1 @@
+- [Android film-look fidelity](camera-preview.md) — Expo's live tint is only an approximation; matching captured recipes in preview needs a native GPU camera pipeline.
