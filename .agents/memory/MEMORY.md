@@ -1,1 +1,2 @@
 - [Android film-look fidelity](camera-preview.md) — Expo's live tint is only an approximation; matching captured recipes in preview needs a native GPU camera pipeline.
+- [GitHub provider auth](github-provider-auth.md) — verify `git ls-remote` after connecting GitHub; a displayed connection can still fail in shell Git.
