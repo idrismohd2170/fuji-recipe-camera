@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -17,7 +18,7 @@ import type { CameraType, FlashMode } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { recipes } from '@/constants/recipes';
@@ -79,6 +80,23 @@ export default function CameraScreen() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<SavedPhoto | null>(null);
   const [isSavingToPhone, setIsSavingToPhone] = useState(false);
+  const [progress, setProgress] = useState<{ label: string; percent: number } | null>(null);
+  const [originalUri, setOriginalUri] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+  const { width: screenWidth } = useWindowDimensions();
+
+  // Tabs keep screens mounted, so without this the camera keeps running (and
+  // draining battery) while another tab is open, and can come back frozen.
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => {
+        setIsFocused(false);
+        setIsReady(false);
+      };
+    }, []),
+  );
 
   if (Platform.OS === 'web') {
     return (
@@ -120,9 +138,24 @@ export default function CameraScreen() {
     );
   }
 
+  const previewHeight = Math.round((screenWidth * 4) / 3);
+  const previewTop = insets.top + 58;
+
+  const discardOriginal = (uri: string | null) => {
+    if (uri) void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+  };
+
+  const closeReview = () => {
+    discardOriginal(originalUri);
+    setOriginalUri(null);
+    setShowOriginal(false);
+    setCapturedPhoto(null);
+  };
+
   const takeShot = async () => {
     if (!cameraRef.current || !isReady || isCapturing) return;
     setIsCapturing(true);
+    setProgress({ label: 'Capturing', percent: 0 });
     try {
       const source = await cameraRef.current.takePictureAsync({
         quality: 1,
@@ -130,7 +163,13 @@ export default function CameraScreen() {
       });
       if (!source?.uri) throw new Error('The camera did not return an image.');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const rendered = await renderFilmLook(source.uri, activeRecipe, source.width, source.height);
+      const rendered = await renderFilmLook(
+        source.uri,
+        activeRecipe,
+        source.width,
+        source.height,
+        (label, fraction) => setProgress({ label, percent: Math.round(fraction * 100) }),
+      );
       const documents = FileSystem.documentDirectory;
       if (!documents) throw new Error('Photo storage is unavailable on this device.');
       const folder = `${documents}film-photos/`;
@@ -152,6 +191,9 @@ export default function CameraScreen() {
         height: rendered.height,
       };
       addPhoto(photo);
+      // Keep the untouched frame so "hold to compare" can show before/after.
+      setOriginalUri(source.uri);
+      setShowOriginal(false);
       setCapturedPhoto(photo);
     } catch (error) {
       Alert.alert(
@@ -160,6 +202,7 @@ export default function CameraScreen() {
       );
     } finally {
       setIsCapturing(false);
+      setProgress(null);
     }
   };
 
@@ -198,14 +241,20 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.cameraScreen}>
-      <CameraView
-        ref={cameraRef}
-        facing={facing}
-        flash={flash}
-        style={StyleSheet.absoluteFill}
-        onCameraReady={() => setIsReady(true)}
-        onMountError={(event) => Alert.alert('Camera unavailable', event.message)}
-      >
+      {/* The sensor captures 4:3, so the preview is a 4:3 frame too. What you
+          see is exactly what is saved, instead of a cropped full-screen view. */}
+      <View style={[styles.previewFrame, { top: previewTop, height: previewHeight }]}>
+        {isFocused && (
+          <CameraView
+            ref={cameraRef}
+            facing={facing}
+            flash={flash}
+            ratio="4:3"
+            style={StyleSheet.absoluteFill}
+            onCameraReady={() => setIsReady(true)}
+            onMountError={(event) => Alert.alert('Camera unavailable', event.message)}
+          />
+        )}
         <View
           pointerEvents="none"
           style={[StyleSheet.absoluteFill, { backgroundColor: activeRecipe.look.previewTint }]}
@@ -218,7 +267,7 @@ export default function CameraScreen() {
             <View style={styles.gridHorizontalTwo} />
           </View>
         )}
-      </CameraView>
+      </View>
 
       <View style={[styles.cameraTopBar, { paddingTop: insets.top + 10 }]}>
         <Pressable
@@ -231,7 +280,7 @@ export default function CameraScreen() {
         </Pressable>
         <View style={styles.previewBadge}>
           <View style={[styles.previewDot, { backgroundColor: colors.primary }]} />
-          <Text style={styles.previewBadgeText}>LIVE PREVIEW</Text>
+          <Text style={styles.previewBadgeText}>LIVE VIEW</Text>
         </View>
         <Pressable
           testID="toggle-grid"
@@ -304,7 +353,9 @@ export default function CameraScreen() {
           </Pressable>
         </View>
         <Text style={styles.cameraHint}>
-          {isCapturing ? 'Applying recipe to your photo…' : 'TAP TO CAPTURE  ·  SAVED WITH LOOK'}
+          {progress
+            ? `${progress.label.toUpperCase()}…  ${progress.percent}%`
+            : 'TAP TO CAPTURE  ·  SAVED WITH LOOK'}
         </Text>
       </View>
 
@@ -375,7 +426,7 @@ export default function CameraScreen() {
               })}
             </ScrollView>
             <Text style={[styles.sheetNote, { color: colors.mutedForeground }]}>
-              Preview is an approximation. The finished photo gets the full recipe grade.
+              The live view only shows a colour tint. The saved photo gets the full recipe: tone curve, colour, grain and vignette. Hold “Compare” on the result to see before and after.
             </Text>
           </View>
         </View>
@@ -384,22 +435,42 @@ export default function CameraScreen() {
       <Modal
         visible={!!capturedPhoto}
         animationType="fade"
-        onRequestClose={() => setCapturedPhoto(null)}
+        onRequestClose={closeReview}
       >
         {capturedPhoto && (
           <View style={[styles.reviewScreen, { backgroundColor: colors.background }]}>
-            <Image source={{ uri: capturedPhoto.uri }} style={styles.reviewImage} resizeMode="contain" />
+            <Image
+              source={{ uri: showOriginal && originalUri ? originalUri : capturedPhoto.uri }}
+              style={styles.reviewImage}
+              resizeMode="contain"
+            />
             <View style={[styles.reviewTop, { paddingTop: insets.top + 8 }]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close photo preview"
-                onPress={() => setCapturedPhoto(null)}
+                onPress={closeReview}
                 style={styles.cameraIconButton}
               >
                 <Feather name="x" size={19} color="#fff" />
               </Pressable>
-              <Text style={styles.reviewTitle}>SHOT DEVELOPED</Text>
-              <View style={{ width: 40 }} />
+              <Text style={styles.reviewTitle}>
+                {showOriginal ? 'ORIGINAL' : 'SHOT DEVELOPED'}
+              </Text>
+              {originalUri ? (
+                <Pressable
+                  testID="compare-original"
+                  accessibilityRole="button"
+                  accessibilityLabel="Hold to compare with the original"
+                  onPressIn={() => setShowOriginal(true)}
+                  onPressOut={() => setShowOriginal(false)}
+                  style={styles.compareButton}
+                >
+                  <Feather name="eye" size={15} color="#fff" />
+                  <Text style={styles.compareText}>COMPARE</Text>
+                </Pressable>
+              ) : (
+                <View style={{ width: 40 }} />
+              )}
             </View>
             <View style={[styles.reviewBottom, { paddingBottom: Math.max(insets.bottom, 18) + 16 }]}>
               <Text style={styles.reviewRecipe}>{activeRecipe.name.toUpperCase()}</Text>
@@ -410,7 +481,7 @@ export default function CameraScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
-                    setCapturedPhoto(null);
+                    closeReview();
                     router.navigate('/gallery');
                   }}
                   style={[styles.reviewSecondary, { borderColor: 'rgba(255,255,255,0.42)' }]}
@@ -447,6 +518,24 @@ export default function CameraScreen() {
 
 const styles = StyleSheet.create({
   cameraScreen: { flex: 1, backgroundColor: '#111510', overflow: 'hidden' },
+  previewFrame: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+    backgroundColor: '#0b0d0b',
+  },
+  compareButton: {
+    height: 32,
+    paddingHorizontal: 11,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: 'rgba(14,17,14,0.58)',
+  },
+  compareText: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
   cameraTopBar: {
     position: 'absolute',
     left: 18,

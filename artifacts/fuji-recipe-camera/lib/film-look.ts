@@ -2,26 +2,28 @@ import { fromByteArray, toByteArray } from 'base64-js';
 import jpeg from 'jpeg-js';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { FilmRecipe } from '@/constants/recipes';
+import { gradePixels } from '@/lib/film-grade';
 
-const MAX_LONG_EDGE = 3840;
+/**
+ * jpeg-js decodes and encodes in plain JavaScript, so cost grows with pixel
+ * count. 2560px on the long edge (about 5 MP) is plenty for phone viewing and
+ * social sharing while keeping a shot to seconds instead of minutes.
+ */
+const MAX_LONG_EDGE = 2560;
+const OUTPUT_QUALITY = 92;
 
-function clamp(value: number) {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
+export type RenderProgress = (label: string, fraction: number) => void;
 
-function grainAt(index: number) {
-  let value = index + 0x6d2b79f5;
-  value = Math.imul(value ^ (value >>> 15), value | 1);
-  value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-  return ((value ^ (value >>> 14)) >>> 0) / 4294967295 - 0.5;
-}
+const nextTick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 export async function renderFilmLook(
   sourceUri: string,
   recipe: FilmRecipe,
   sourceWidth: number,
   sourceHeight: number,
+  onProgress?: RenderProgress,
 ): Promise<{ base64: string; width: number; height: number }> {
+  onProgress?.('Preparing photo', 0);
   const resize =
     Math.max(sourceWidth, sourceHeight) > MAX_LONG_EDGE
       ? sourceWidth >= sourceHeight
@@ -30,44 +32,32 @@ export async function renderFilmLook(
       : [];
   const prepared = await ImageManipulator.manipulateAsync(sourceUri, resize, {
     format: ImageManipulator.SaveFormat.JPEG,
-    compress: 0.96,
+    compress: 0.94,
     base64: true,
   });
   if (!prepared.base64) throw new Error('The camera image could not be prepared.');
 
-  const decoded = jpeg.decode(toByteArray(prepared.base64), { useTArray: true });
-  const pixels = decoded.data;
-  const { contrast, exposure, grain, saturation, warmth } = recipe.look;
+  onProgress?.('Preparing photo', 0.1);
+  await nextTick();
+  const decoded = jpeg.decode(toByteArray(prepared.base64), {
+    useTArray: true,
+    maxMemoryUsageInMB: 1024,
+  });
+  onProgress?.('Applying film look', 0.25);
+  await nextTick();
 
-  for (let index = 0; index < pixels.length; index += 4) {
-    const originalRed = pixels[index];
-    const originalGreen = pixels[index + 1];
-    const originalBlue = pixels[index + 2];
-    const luminance =
-      originalRed * 0.2126 + originalGreen * 0.7152 + originalBlue * 0.0722;
-    const texture = grainAt(index) * grain;
-    let red = luminance + (originalRed - luminance) * saturation;
-    let green = luminance + (originalGreen - luminance) * saturation;
-    let blue = luminance + (originalBlue - luminance) * saturation;
-    const highlightWeight = luminance / 255;
+  await gradePixels(decoded.data, decoded.width, decoded.height, recipe.look, {
+    grainSeed: Date.now() & 0xffff,
+    onProgress: (fraction) => onProgress?.('Applying film look', 0.25 + fraction * 0.55),
+  });
 
-    red = (red - 128) * contrast + 128 + exposure + warmth * (0.2 + highlightWeight * 0.8);
-    green =
-      (green - 128) * contrast +
-      128 +
-      exposure -
-      Math.abs(warmth) * 0.025 +
-      texture;
-    blue = (blue - 128) * contrast + 128 + exposure - warmth * (0.12 + highlightWeight * 0.55);
-    pixels[index] = clamp(red + texture);
-    pixels[index + 1] = clamp(green);
-    pixels[index + 2] = clamp(blue + texture * 0.6);
-  }
-
+  onProgress?.('Saving photo', 0.82);
+  await nextTick();
   const encoded = jpeg.encode(
-    { data: pixels, width: decoded.width, height: decoded.height },
-    94,
+    { data: decoded.data, width: decoded.width, height: decoded.height },
+    OUTPUT_QUALITY,
   );
+  onProgress?.('Saving photo', 1);
   return {
     base64: fromByteArray(new Uint8Array(encoded.data)),
     width: decoded.width,
