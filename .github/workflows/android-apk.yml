@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build-apk:
     name: Build installable Android APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CI: '1'
@@ -41,8 +41,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # The runner image already includes the Android SDK (ANDROID_HOME).
+      # android-actions/setup-android@v3 fails here ("Failed to find package
+      # 'tools'"), so skip it and just accept the licenses so Gradle can
+      # download any extra SDK/NDK pieces it needs.
+      - name: Accept Android SDK licenses
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
