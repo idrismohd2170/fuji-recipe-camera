@@ -9,10 +9,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-apk:
     name: Build installable Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: '1'
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -25,7 +32,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
 
       - name: Set up Java
@@ -37,20 +44,41 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      # `--non-interactive` is not a valid expo flag; CI=1 (set above) is what
+      # disables prompts.
       - name: Generate Android project
-        run: pnpm --filter @workspace/fuji-recipe-camera exec expo prebuild --platform android --no-install --non-interactive
+        run: pnpm --filter @workspace/fuji-recipe-camera exec expo prebuild --platform android --no-install
 
-      - name: Build installable debug APK
+      # The default 2 GB Gradle heap runs out of memory on the runner when
+      # building 4 CPU architectures. Give it more and build arm64 only
+      # (all modern phones).
+      - name: Tune Gradle for CI
         working-directory: artifacts/fuji-recipe-camera/android
-        run: ./gradlew assembleDebug
+        run: |
+          sed -i '/^org.gradle.jvmargs=/d; /^reactNativeArchitectures=/d' gradle.properties
+          {
+            echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError'
+            echo 'reactNativeArchitectures=arm64-v8a'
+          } >> gradle.properties
+
+      # A debug build does NOT bundle the JavaScript, so the installed app would
+      # only show a "Unable to load script" error. The release variant bundles
+      # the JS and is signed with the template's debug keystore, so it installs
+      # directly on a phone.
+      - name: Build installable APK
+        working-directory: artifacts/fuji-recipe-camera/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fuji-Recipe-Camera-debug-APK
-          path: artifacts/fuji-recipe-camera/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Fuji-Recipe-Camera-APK
+          path: artifacts/fuji-recipe-camera/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
