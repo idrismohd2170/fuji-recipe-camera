@@ -68,7 +68,11 @@ jobs:
         working-directory: artifacts/fuji-recipe-camera/android
         run: |
           sed -i '/^org.gradle.jvmargs=/d; /^reactNativeArchitectures=/d' gradle.properties
+          # The generated file has no trailing newline, so start on a new line;
+          # otherwise our first setting gets glued onto the previous property
+          # and breaks Expo's autolinking.
           {
+            echo ''
             echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError'
             echo 'reactNativeArchitectures=arm64-v8a'
           } >> gradle.properties
