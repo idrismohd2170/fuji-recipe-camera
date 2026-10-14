@@ -44,16 +44,38 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // Each stored value is parsed on its own, so one corrupt entry can never
+    // cause the others to be dropped (and then overwritten by the save effect).
+    const parse = <T,>(raw: string | null): T | null => {
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    };
     AsyncStorage.multiGet([FAVORITES_KEY, PHOTOS_KEY, ACTIVE_RECIPE_KEY])
       .then(([favoriteEntry, photoEntry, recipeEntry]) => {
         if (!mounted) return;
-        if (favoriteEntry[1]) {
-          const parsed = JSON.parse(favoriteEntry[1]) as string[];
-          setFavorites(Array.isArray(parsed) ? parsed : []);
+        const storedFavorites = parse<unknown>(favoriteEntry[1]);
+        if (Array.isArray(storedFavorites)) {
+          setFavorites(storedFavorites.filter((id): id is string => typeof id === 'string'));
         }
-        if (photoEntry[1]) {
-          const parsed = JSON.parse(photoEntry[1]) as SavedPhoto[];
-          setPhotos(Array.isArray(parsed) ? parsed : []);
+        const storedPhotos = parse<unknown>(photoEntry[1]);
+        if (Array.isArray(storedPhotos)) {
+          const valid = storedPhotos.filter(
+            (photo): photo is SavedPhoto =>
+              !!photo &&
+              typeof photo === 'object' &&
+              typeof (photo as SavedPhoto).id === 'string' &&
+              typeof (photo as SavedPhoto).uri === 'string' &&
+              typeof (photo as SavedPhoto).recipeId === 'string',
+          );
+          // Merge, so a photo added before loading finished is not lost.
+          setPhotos((current) => [
+            ...current,
+            ...valid.filter((photo) => !current.some((item) => item.id === photo.id)),
+          ]);
         }
         if (recipeEntry[1] && recipes.some((recipe) => recipe.id === recipeEntry[1])) {
           setActiveRecipeIdState(recipeEntry[1]);

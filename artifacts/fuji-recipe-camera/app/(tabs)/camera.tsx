@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '@/components/Glass';
 import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
+import { useSingleFire } from '@/hooks/useSingleFire';
 import { recipes } from '@/constants/recipes';
 import { fonts, type } from '@/constants/typography';
 import { useAppState, type SavedPhoto } from '@/context/AppState';
@@ -83,6 +84,12 @@ export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
+  const carouselRef = useRef<ScrollView>(null);
+  const chipX = useRef<Record<string, number>>({});
+  const once = useSingleFire();
+  // Refs, not state: state can be stale between two very fast taps.
+  const captureBusy = useRef(false);
+  const saveBusy = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const { activeRecipe, activeRecipeId, addPhoto, setActiveRecipeId } = useAppState();
   const [facing, setFacing] = useState<CameraType>('back');
@@ -97,6 +104,17 @@ export default function CameraScreen() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [isFocused, setIsFocused] = useState(true);
   const { width: screenWidth } = useWindowDimensions();
+
+  // Keep the selected recipe chip in view. Without this, choosing a recipe that sits
+  // off-screen (for example from the detail screen) leaves no visible selection.
+  const scrollToChip = useCallback((id: string, animated: boolean) => {
+    const x = chipX.current[id];
+    if (x === undefined) return;
+    carouselRef.current?.scrollTo({ x: Math.max(0, x - 16), animated });
+  }, []);
+  useEffect(() => {
+    scrollToChip(activeRecipeId, true);
+  }, [activeRecipeId, scrollToChip]);
 
   // Tabs keep screens mounted, so without this the camera keeps running (and
   // draining battery) while another tab is open, and can come back frozen.
@@ -167,15 +185,19 @@ export default function CameraScreen() {
   };
 
   const takeShot = async () => {
-    if (!cameraRef.current || !isReady || isCapturing) return;
+    if (!cameraRef.current || !isReady || isCapturing || captureBusy.current) return;
+    captureBusy.current = true;
     setIsCapturing(true);
     setProgress({ label: 'Capturing', percent: 0 });
+    let tempUri: string | null = null;
+    let handedToReview = false;
     try {
       const source = await cameraRef.current.takePictureAsync({
         quality: 1,
         exif: false,
       });
       if (!source?.uri) throw new Error('The camera did not return an image.');
+      tempUri = source.uri;
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const rendered = await renderFilmLook(
         source.uri,
@@ -207,6 +229,7 @@ export default function CameraScreen() {
       addPhoto(photo);
       // Keep the untouched frame so "hold to compare" can show before/after.
       setOriginalUri(source.uri);
+      handedToReview = true;
       setShowOriginal(false);
       setCapturedPhoto(photo);
     } catch (error) {
@@ -215,13 +238,17 @@ export default function CameraScreen() {
         error instanceof Error ? error.message : 'Try taking the photo again.',
       );
     } finally {
+      // If the shot failed after the camera wrote its temp file, don't leave it behind.
+      if (!handedToReview) discardOriginal(tempUri);
+      captureBusy.current = false;
       setIsCapturing(false);
       setProgress(null);
     }
   };
 
   const saveToPhone = async () => {
-    if (!capturedPhoto || isSavingToPhone) return;
+    if (!capturedPhoto || isSavingToPhone || saveBusy.current) return;
+    saveBusy.current = true;
     setIsSavingToPhone(true);
     try {
       const mediaLibrary = await import('expo-media-library');
@@ -249,6 +276,7 @@ export default function CameraScreen() {
         error instanceof Error ? error.message : 'Try saving again.',
       );
     } finally {
+      saveBusy.current = false;
       setIsSavingToPhone(false);
     }
   };
@@ -367,6 +395,7 @@ export default function CameraScreen() {
       <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, 12) + 14 }]}>
         {/* Recipe carousel: one swipe and tap to change the look. */}
         <ScrollView
+          ref={carouselRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.carousel}
@@ -381,6 +410,10 @@ export default function CameraScreen() {
                 accessibilityState={{ selected }}
                 haptic={Haptics.ImpactFeedbackStyle.Light}
                 pressedScale={0.94}
+                onLayout={(event) => {
+                  chipX.current[recipe.id] = event.nativeEvent.layout.x;
+                  if (recipe.id === activeRecipeId) scrollToChip(recipe.id, false);
+                }}
                 onPress={() => setActiveRecipeId(recipe.id)}
                 style={[
                   styles.recipeChip,
@@ -416,7 +449,9 @@ export default function CameraScreen() {
           <PressableScale
             accessibilityLabel={`Open ${activeRecipe.name} details`}
             onPress={() =>
-              router.push({ pathname: '/recipe/[id]', params: { id: activeRecipeId } })
+              once(() =>
+                router.push({ pathname: '/recipe/[id]', params: { id: activeRecipeId } }),
+              )
             }
             style={styles.sideButton}
           >
@@ -528,10 +563,12 @@ export default function CameraScreen() {
               </Text>
               <View style={styles.reviewActions}>
                 <PressableScale
-                  onPress={() => {
-                    closeReview();
-                    router.navigate('/gallery');
-                  }}
+                  onPress={() =>
+                    once(() => {
+                      closeReview();
+                      router.navigate('/gallery');
+                    })
+                  }
                   style={styles.reviewSecondary}
                 >
                   <Feather name="image" size={18} color="#fff" />

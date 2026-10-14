@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -38,10 +38,12 @@ export default function GalleryScreen() {
   const { photos, removePhoto } = useAppState();
   const [selectedPhoto, setSelectedPhoto] = useState<SavedPhoto | null>(null);
   const [saving, setSaving] = useState(false);
+  const saveBusy = useRef(false);
   const tile = (width - GAP * (COLUMNS - 1)) / COLUMNS;
 
   const saveToPhone = async () => {
-    if (!selectedPhoto || saving) return;
+    if (!selectedPhoto || saving || saveBusy.current) return;
+    saveBusy.current = true;
     setSaving(true);
     try {
       if (Platform.OS === 'web') {
@@ -73,6 +75,7 @@ export default function GalleryScreen() {
         error instanceof Error ? error.message : 'Try saving again.',
       );
     } finally {
+      saveBusy.current = false;
       setSaving(false);
     }
   };

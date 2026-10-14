@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '@/components/Glass';
 import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
+import { useSingleFire } from '@/hooks/useSingleFire';
 import { recipes, type FilmRecipe } from '@/constants/recipes';
 import { getRecipeImage } from '@/constants/recipe-images';
 import { fonts, type } from '@/constants/typography';
@@ -123,6 +124,7 @@ export default function RecipeLibraryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const once = useSingleFire();
   const { favorites } = useAppState();
   const [filter, setFilter] = useState<'all' | 'saved'>('all');
   const savedOnly = filter === 'saved';
@@ -132,7 +134,9 @@ export default function RecipeLibraryScreen() {
     [favorites, savedOnly],
   );
 
-  const openRecipe = (id: string) => router.push({ pathname: '/recipe/[id]', params: { id } });
+  // Single-fire: a quick double tap must not stack two detail modals.
+  const openRecipe = (id: string) =>
+    once(() => router.push({ pathname: '/recipe/[id]', params: { id } }));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>

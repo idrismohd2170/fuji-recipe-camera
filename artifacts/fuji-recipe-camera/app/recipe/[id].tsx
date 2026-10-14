@@ -3,13 +3,14 @@ import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-nativ
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '@/components/Glass';
 import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
-import { getRecipe } from '@/constants/recipes';
+import { useSingleFire } from '@/hooks/useSingleFire';
+import { recipes } from '@/constants/recipes';
 import { getRecipeImage } from '@/constants/recipe-images';
 import { fonts, type } from '@/constants/typography';
 import { lookValues, menuSettings, type SettingRow } from '@/lib/recipe-display';
@@ -50,15 +51,21 @@ export default function RecipeDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const recipe = getRecipe(String(id));
+  const once = useSingleFire();
+  const recipe = recipes.find((item) => item.id === String(id));
   const { isFavorite, toggleFavorite, setActiveRecipeId } = useAppState();
+
+  // An unknown or missing id must not show the wrong recipe: go back to the list.
+  if (!recipe) return <Redirect href="/" />;
+
   const saved = isFavorite(recipe.id);
 
-  const useInCamera = () => {
-    setActiveRecipeId(recipe.id);
-    router.dismissAll();
-    router.navigate('/camera');
-  };
+  const useInCamera = () =>
+    once(() => {
+      setActiveRecipeId(recipe.id);
+      router.dismissAll();
+      router.navigate('/camera');
+    });
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -78,7 +85,7 @@ export default function RecipeDetailScreen() {
             <PressableScale
               testID="close-recipe"
               accessibilityLabel="Close"
-              onPress={() => router.back()}
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
               style={styles.roundHit}
             >
               <Glass forceDark radius={22} style={styles.roundGlass}>

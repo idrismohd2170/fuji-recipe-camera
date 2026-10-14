@@ -78,3 +78,37 @@ Audited by reading code (nothing run on a device). Items 1, 2 and 7 passed (true
 Checks after the fixes: typecheck 0 errors; `npx expo export --platform android` bundles successfully.
 
 Still unverified: how any of this looks on the S24 Ultra, light mode on screen, whether `statusBarTranslucent` / `navigationBarTranslucent` behave as expected on the device, and the Android glass look (still a tinted fill, not a real blur). NEXT STEPS above are unchanged; step 1 (run it on the phone) is still the first thing to do.
+
+## Session 3 (functionality review: navigation, camera lifecycle, capture, gallery, state)
+
+Judged by reading code only; nothing was run on a device. No styling, copy, dependencies, image maths, recipe data or AsyncStorage keys were changed.
+
+**Result: 2 of 8 flows passed as written, 6 had real problems, all now fixed.**
+
+- **1 Recipes: PASS.** Segmented thumb is positioned from the measured width and the selected index; favorites and the Saved empty state work.
+- **2 Detail modal: FAIL, fixed.** A quick double tap could stack two modals; an unknown id silently showed the first recipe; closing with no history had no fallback. Now: taps are single-fire (`hooks/useSingleFire.ts`), an unknown id redirects to Recipes, close falls back to `replace('/')`.
+- **3 Shoot with this recipe: FAIL, fixed.** Could fire twice on a double tap (now single-fire). Also see item 4: the selected recipe could be hidden off-screen.
+- **4 Camera: FAIL (one problem), fixed.** Permission paths, focus/blur, flash/grid/flip and back behaviour read correctly (Android back from Camera or Gallery goes to Recipes: expo-router's tab default is `firstRoute`, so there is no dead end). The bug: the recipe carousel did not scroll to the selected recipe, so choosing one from the detail screen could leave nothing visibly selected. It now scrolls the selected chip into view.
+- **5 Capture: FAIL, fixed.** The shutter guard used React state, which can be stale between two very fast taps; it now also uses a ref. A shot that failed after the camera wrote its temp file left that file behind; it is now deleted. "Save to phone" had the same state-only guard and now has a ref guard. "Gallery" in the review screen is single-fire.
+- **6 Gallery: FAIL (minor), fixed.** "Save to phone" had the same state-only guard, now a ref guard. Grid last-row layout is fine: tiles have a fixed width, so a last row of 1 or 2 stays left-aligned. Remove deletes the file and state and closes the viewer.
+- **7 State: FAIL, fixed.** One corrupt stored value made hydration drop all three, and the save effect then overwrote the good data. Each key is now parsed on its own, malformed photo entries are filtered out, and loaded photos are merged with any added before loading finished.
+- **8 Tab bar and PressableScale: PASS.** The tab bar is a direct child of the full-screen container, so it overlays content and stays tappable. It is hidden on Camera via `tabBarStyle.display`. `PressableScale` passes `disabled`, `onPressIn` and `onPressOut` through, so hold-to-compare works.
+
+Files changed: `app/(tabs)/{index,camera,gallery}.tsx`, `app/recipe/[id].tsx`, `context/AppState.tsx`, new `hooks/useSingleFire.ts`.
+
+Checks: typecheck 0 errors; `npx expo export --platform android` bundles successfully.
+
+Known, not changed: a photo whose file was deleted outside the app still shows as a blank tile (no crash; open it and tap Remove). Pruning missing files at startup would be a data-model decision, so it is left for the owner.
+
+### Manual device test checklist (S24 Ultra) [all unverified until run]
+1. **Recipes:** tap Saved with nothing saved (empty state), tap All, tap Saved again; the thumb must sit under the selected label each time. Heart two recipes, force-stop the app, reopen: both still saved.
+2. **Detail modal:** double-tap a recipe card quickly; one modal opens. Press the Android back button: it closes. Open again, tap the chevron: it closes. Repeat from the featured card.
+3. **Shoot with this recipe:** open Red Forest or Silver 160 (the last chips), tap "Shoot with this recipe". Camera opens once, with that chip selected and scrolled into view, and the preview tint changes.
+4. **Camera permissions:** deny once (prompt returns), deny with "don't ask again" (button becomes "Open settings"), then grant. Switch to Gallery and back: the preview restarts and is not frozen.
+5. **Camera back:** on the Camera tab press the chevron, then the Android back button: both end up on Recipes.
+6. **Controls:** flash, grid and flip each toggle and show their state; tapping each carousel chip changes the preview tint.
+7. **Capture:** double-tap the shutter; only one photo is saved and the review opens with the developed photo.
+8. **Compare:** hold the eye button: original shows; release: developed shows again. Close the review with the Android back button, then check no temp file remains (optional).
+9. **Save to phone:** from review and from the gallery viewer, with photo permission granted, denied, and denied with "don't ask again" (offers Settings). Double-tap the button: one save.
+10. **Gallery:** with 0, 1, 2, 3, 4 and many photos the grid is left-aligned with no stretched tiles; tap a tile opens that photo; Remove deletes it and closes the viewer; the empty state button opens Camera.
+11. **Tab bar:** correct highlight on each tab, hidden on Camera, back when leaving, clear of the gesture bar.
