@@ -174,6 +174,8 @@ export default function GalleryScreen() {
       <Modal
         visible={!!selectedPhoto}
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => setSelectedPhoto(null)}
       >
         {selectedPhoto && (
@@ -199,7 +201,11 @@ export default function GalleryScreen() {
               </Glass>
               <View style={styles.roundHit} />
             </View>
-            <View style={[styles.viewerBottom, { paddingBottom: Math.max(insets.bottom, 18) + 14 }]}>
+            <Glass
+              forceDark
+              radius={32}
+              style={[styles.viewerBottom, { marginBottom: Math.max(insets.bottom, 12) + 8 }]}
+            >
               <Text style={styles.viewerMeta}>
                 {selectedPhoto.width} × {selectedPhoto.height} ·{' '}
                 {new Date(selectedPhoto.createdAt).toLocaleString()}
@@ -226,7 +232,7 @@ export default function GalleryScreen() {
                   </Text>
                 </PressableScale>
               </View>
-            </View>
+            </Glass>
           </View>
         )}
       </Modal>
@@ -262,7 +268,7 @@ const styles = StyleSheet.create({
   roundGlass: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   recipePill: { height: 32, paddingHorizontal: 14, justifyContent: 'center' },
   recipePillText: { fontFamily: fonts.semibold, fontSize: 13, color: '#fff', letterSpacing: -0.1 },
-  viewerBottom: { paddingHorizontal: 20, paddingTop: 40, backgroundColor: 'rgba(0,0,0,0.6)' },
+  viewerBottom: { marginHorizontal: 12, padding: 20 },
   viewerMeta: { fontFamily: fonts.regular, fontSize: 13, color: 'rgba(255,255,255,0.7)' },
   viewerActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   removeButton: {

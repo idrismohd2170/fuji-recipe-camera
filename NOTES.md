@@ -63,3 +63,18 @@ The Android package id is `com.idrismohd.fujirecipecamera` (set in `app.json`); 
 5. **Gallery save and share.** Add share sheet, multi-select, and saving to a named album through `expo-media-library`.
 6. **Performance tuning for the S24 Ultra.** Profile the 120Hz scroll and animations, image sizes, and capture latency; add thumbnails so the gallery grid does not decode full-size JPEGs.
 7. **Cleanup (needs owner approval).** Remove the Replit files listed under Known issues, and fill in `replit.md` or delete it.
+
+## Session 2 (UI audit against the Apple-style checklist)
+
+Audited by reading code (nothing run on a device). Items 1, 2 and 7 passed (true-black dark tokens, no old-palette colours, consistent icons). Items 3, 4, 5, 6 and 8 had failures, now fixed:
+
+- **Fonts (3):** `ErrorFallback.tsx` and `+not-found.tsx` used bare `fontWeight` on the default font. Both now use the Inter type scale.
+- **Shapes and borders (4):** error screen buttons/sheet had 8-16px radii and a 1px border; segmented control and chips were not pills; camera swatch had a 1px border. All now use 20px+ radii, pills and hairlines.
+- **Tap targets and press feel (5):** the error screen used plain `Pressable` with 44px targets; the segmented control (36px), lens pills (40px) and recipe chips (44px) were under 48px. All are now `PressableScale` and at least 48px tall.
+- **Glass (6):** the photo review and gallery viewer bottom panels were flat scrims; they are now floating `Glass` panels.
+- **Status bar and modals (8):** photo review, gallery viewer and the error-details modal now set `statusBarTranslucent` and `navigationBarTranslucent` so the safe-area padding lines up on Android; the recipe detail screen forces a light status bar over its dark hero image.
+- `+not-found.tsx` now has a styled "Back to recipes" button instead of a bare link.
+
+Checks after the fixes: typecheck 0 errors; `npx expo export --platform android` bundles successfully.
+
+Still unverified: how any of this looks on the S24 Ultra, light mode on screen, whether `statusBarTranslucent` / `navigationBarTranslucent` behave as expected on the device, and the Android glass look (still a tinted fill, not a real blur). NEXT STEPS above are unchanged; step 1 (run it on the phone) is still the first thing to do.

@@ -286,8 +286,8 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 4 },
   segmentWrap: { marginTop: 18, marginBottom: 20 },
   segmented: {
-    height: 40,
-    borderRadius: 14,
+    height: 52,
+    borderRadius: 26,
     padding: 2,
     flexDirection: 'row',
   },
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     top: 2,
     left: 2,
     bottom: 2,
-    borderRadius: 12,
+    borderRadius: 24,
   },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   segmentText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.15 },
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
   cardImage: { width: 96, height: 112, borderRadius: 16 },
   cardBody: { flex: 1, justifyContent: 'center' },
   chips: { flexDirection: 'row', gap: 6, marginTop: 9, flexWrap: 'nowrap' },
-  chip: { borderRadius: 10, paddingHorizontal: 8, height: 22, justifyContent: 'center', flexShrink: 1 },
+  chip: { borderRadius: 11, paddingHorizontal: 9, height: 22, justifyContent: 'center', flexShrink: 1 },
   chipText: { fontFamily: fonts.medium, fontSize: 11 },
 
   heartHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },

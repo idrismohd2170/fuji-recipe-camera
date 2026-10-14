@@ -475,6 +475,8 @@ export default function CameraScreen() {
       <Modal
         visible={!!capturedPhoto}
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={closeReview}
       >
         {capturedPhoto && (
@@ -515,7 +517,11 @@ export default function CameraScreen() {
                 <View style={styles.roundHit} />
               )}
             </View>
-            <View style={[styles.reviewBottom, { paddingBottom: Math.max(insets.bottom, 18) + 14 }]}>
+            <Glass
+              forceDark
+              radius={32}
+              style={[styles.reviewBottom, { marginBottom: Math.max(insets.bottom, 12) + 8 }]}
+            >
               <Text style={styles.reviewRecipe}>{activeRecipe.name}</Text>
               <Text style={styles.reviewCaption}>
                 {capturedPhoto.width} × {capturedPhoto.height} · Hold the eye to compare
@@ -549,7 +555,7 @@ export default function CameraScreen() {
                   )}
                 </PressableScale>
               </View>
-            </View>
+            </Glass>
           </View>
         )}
       </Modal>
@@ -574,7 +580,7 @@ const styles = StyleSheet.create({
   lensWrap: { position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center' },
   lensBar: { padding: 4 },
   lensRow: { flexDirection: 'row', gap: 2 },
-  lensPill: { minWidth: 48, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  lensPill: { minWidth: 52, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   lensText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.2 },
 
   topBar: {
@@ -597,15 +603,15 @@ const styles = StyleSheet.create({
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   carousel: { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
   recipeChip: {
-    height: 44,
-    borderRadius: 22,
+    height: 48,
+    borderRadius: 24,
     paddingLeft: 8,
     paddingRight: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  recipeSwatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1 },
+  recipeSwatch: { width: 30, height: 30, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth },
   recipeChipText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.2, maxWidth: 150 },
 
   shutterRow: {
@@ -672,7 +678,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  reviewBottom: { paddingHorizontal: 20, paddingTop: 48, backgroundColor: 'rgba(0,0,0,0.6)' },
+  reviewBottom: { marginHorizontal: 12, padding: 20 },
   reviewRecipe: { fontFamily: fonts.bold, fontSize: 24, letterSpacing: -0.5, color: '#fff' },
   reviewCaption: { fontFamily: fonts.regular, fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
   reviewActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
