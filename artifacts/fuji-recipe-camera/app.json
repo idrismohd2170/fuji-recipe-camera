@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "fuji-recipe-camera",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false
     },
@@ -15,7 +15,8 @@
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "package": "com.idrismohd.fujirecipecamera"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -34,7 +35,9 @@
         {
           "photosPermission": "Allow Fuji Recipe Camera to view photos you choose.",
           "savePhotosPermission": "Allow Fuji Recipe Camera to save recipe-look photos to your gallery.",
-          "granularPermissions": ["photo"]
+          "granularPermissions": [
+            "photo"
+          ]
         }
       ]
     ],

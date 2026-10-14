@@ -1,31 +1,44 @@
 import React, { useState } from 'react';
 import {
   Alert,
-  Image,
+  FlatList,
   Linking,
   Modal,
   Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Glass } from '@/components/Glass';
+import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
 import { getRecipe } from '@/constants/recipes';
+import { fonts, type } from '@/constants/typography';
 import { useAppState, type SavedPhoto } from '@/context/AppState';
+
+const COLUMNS = 3;
+const GAP = 2;
+/** Space reserved so the grid clears the floating tab bar. */
+const TAB_BAR_CLEARANCE = 104;
 
 export default function GalleryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { photos, removePhoto } = useAppState();
   const [selectedPhoto, setSelectedPhoto] = useState<SavedPhoto | null>(null);
   const [saving, setSaving] = useState(false);
+  const tile = (width - GAP * (COLUMNS - 1)) / COLUMNS;
 
   const saveToPhone = async () => {
     if (!selectedPhoto || saving) return;
@@ -84,91 +97,79 @@ export default function GalleryScreen() {
     ]);
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Text style={[type.largeTitle, { color: colors.foreground }]}>Gallery</Text>
+      <Text style={[type.subhead, { color: colors.mutedForeground, marginTop: 4 }]}>
+        {photos.length === 0
+          ? 'Recipe-graded photos appear here.'
+          : `${photos.length} ${photos.length === 1 ? 'photo' : 'photos'} · stored on this device`}
+      </Text>
+    </View>
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView
+      <FlatList
+        data={photos}
+        keyExtractor={(photo) => photo.id}
+        numColumns={COLUMNS}
+        columnWrapperStyle={{ gap: GAP }}
+        ItemSeparatorComponent={() => <View style={{ height: GAP }} />}
+        ListHeaderComponent={header}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === 'web' ? 67 : insets.top + 9,
-          paddingBottom: Platform.OS === 'web' ? 104 : Math.max(insets.bottom, 16) + 14,
-          paddingHorizontal: 20,
+          paddingTop: insets.top + 14,
+          paddingBottom: insets.bottom + TAB_BAR_CLEARANCE,
+          flexGrow: 1,
         }}
-      >
-        <View style={styles.header}>
-          <View>
-            <Text style={[styles.eyebrow, { color: colors.primary }]}>YOUR CAMERA ROLL</Text>
-            <Text style={[styles.title, { color: colors.foreground }]}>Developed.</Text>
-          </View>
-          <View style={[styles.totalBadge, { borderColor: colors.border }]}>
-            <Text style={[styles.totalText, { color: colors.foreground }]}>
-              {String(photos.length).padStart(2, '0')}
-            </Text>
-          </View>
-        </View>
-        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          Recipe-graded photos saved on this device.
-        </Text>
-
-        {photos.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.muted }]}>
-              <Feather name="aperture" size={24} color={colors.primary} />
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.card }]}>
+              <Feather name="image" size={30} color={colors.primary} />
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Your frames go here</Text>
-            <Text style={[styles.emptyCopy, { color: colors.mutedForeground }]}>
-              Take a photo with a film recipe and it will appear in this private, on-device gallery.
+            <Text style={[type.title3, { color: colors.foreground, marginTop: 18 }]}>
+              No photos yet
             </Text>
-            <Pressable
+            <Text style={[type.callout, styles.emptyCopy, { color: colors.mutedForeground }]}>
+              Shoot with a film recipe and your frames will show up here.
+            </Text>
+            <PressableScale
               testID="open-camera-from-gallery"
-              accessibilityRole="button"
               onPress={() => router.navigate('/camera')}
-              style={[styles.captureButton, { backgroundColor: colors.primary }]}
+              style={[styles.emptyButton, { backgroundColor: colors.primary }]}
             >
-              <Feather name="camera" size={15} color={colors.primaryForeground} />
-              <Text style={[styles.captureText, { color: colors.primaryForeground }]}>
+              <Feather name="camera" size={18} color={colors.primaryForeground} />
+              <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>
                 Open camera
               </Text>
-            </Pressable>
+            </PressableScale>
           </View>
-        ) : (
-          <View style={styles.photoGrid}>
-            {photos.map((photo, index) => {
-              const recipe = getRecipe(photo.recipeId);
-              return (
-                <Pressable
-                  key={photo.id}
-                  testID={`open-photo-${photo.id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`View photo made with ${recipe.name}`}
-                  onPress={() => setSelectedPhoto(photo)}
-                  style={[
-                    styles.photoTile,
-                    { backgroundColor: colors.card, borderColor: colors.border },
-                    index % 2 === 1 ? styles.secondTile : null,
-                  ]}
-                >
-                  <Image source={{ uri: photo.uri }} style={styles.photoImage} />
-                  <View style={styles.photoCaption}>
-                    <Text style={styles.photoRecipe} numberOfLines={1}>{recipe.name}</Text>
-                    <Text style={styles.photoDate}>
-                      {new Date(photo.createdAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-        <View style={styles.privateNote}>
-          <Feather name="lock" size={12} color={colors.mutedForeground} />
-          <Text style={[styles.privateCopy, { color: colors.mutedForeground }]}>
-            Stored on this device until you remove them.
-          </Text>
-        </View>
-      </ScrollView>
+        }
+        renderItem={({ item: photo }) => {
+          const recipe = getRecipe(photo.recipeId);
+          return (
+            <PressableScale
+              testID={`open-photo-${photo.id}`}
+              accessibilityLabel={`View photo made with ${recipe.name}`}
+              haptic={Haptics.ImpactFeedbackStyle.Light}
+              pressedScale={0.97}
+              onPress={() => setSelectedPhoto(photo)}
+              style={{ width: tile, height: tile, backgroundColor: colors.card }}
+            >
+              <Animated.View entering={FadeIn.duration(220)} style={StyleSheet.absoluteFill}>
+                <Image
+                  source={{ uri: photo.uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  recyclingKey={photo.id}
+                  transition={120}
+                />
+              </Animated.View>
+            </PressableScale>
+          );
+        }}
+      />
 
       <Modal
         visible={!!selectedPhoto}
@@ -176,50 +177,54 @@ export default function GalleryScreen() {
         onRequestClose={() => setSelectedPhoto(null)}
       >
         {selectedPhoto && (
-          <View style={[styles.detailScreen, { backgroundColor: colors.background }]}>
-            <Image source={{ uri: selectedPhoto.uri }} style={styles.detailImage} resizeMode="contain" />
-            <View style={[styles.detailTop, { paddingTop: insets.top + 8 }]}>
-              <Pressable
-                accessibilityRole="button"
+          <View style={styles.viewer}>
+            <StatusBar style="light" />
+            <Image
+              source={{ uri: selectedPhoto.uri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
+            />
+            <View style={[styles.viewerTop, { paddingTop: insets.top + 8 }]}>
+              <PressableScale
                 accessibilityLabel="Close photo"
                 onPress={() => setSelectedPhoto(null)}
-                style={styles.detailIcon}
+                style={styles.roundHit}
               >
-                <Feather name="x" size={19} color="#fff" />
-              </Pressable>
-              <Text style={styles.detailTopTitle}>YOUR FRAME</Text>
-              <View style={{ width: 40 }} />
+                <Glass forceDark radius={22} style={styles.roundGlass}>
+                  <Feather name="x" size={20} color="#fff" />
+                </Glass>
+              </PressableScale>
+              <Glass forceDark radius={16} style={styles.recipePill}>
+                <Text style={styles.recipePillText}>{getRecipe(selectedPhoto.recipeId).name}</Text>
+              </Glass>
+              <View style={styles.roundHit} />
             </View>
-            <View style={[styles.detailBottom, { paddingBottom: Math.max(insets.bottom, 18) + 16 }]}>
-              <Text style={[styles.detailRecipe, { color: colors.primary }]}>
-                {getRecipe(selectedPhoto.recipeId).name.toUpperCase()}
-              </Text>
-              <Text style={styles.detailMeta}>
+            <View style={[styles.viewerBottom, { paddingBottom: Math.max(insets.bottom, 18) + 14 }]}>
+              <Text style={styles.viewerMeta}>
                 {selectedPhoto.width} × {selectedPhoto.height} ·{' '}
                 {new Date(selectedPhoto.createdAt).toLocaleString()}
               </Text>
-              <View style={styles.detailActions}>
-                <Pressable
+              <View style={styles.viewerActions}>
+                <PressableScale
                   testID="remove-gallery-photo"
-                  accessibilityRole="button"
+                  haptic={Haptics.ImpactFeedbackStyle.Medium}
                   onPress={() => confirmDelete(selectedPhoto)}
                   style={styles.removeButton}
                 >
-                  <Feather name="trash-2" size={16} color="#fff" />
-                  <Text style={styles.actionText}>Remove</Text>
-                </Pressable>
-                <Pressable
+                  <Feather name="trash-2" size={18} color={colors.destructive} />
+                  <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
+                </PressableScale>
+                <PressableScale
                   testID="save-gallery-photo-to-phone"
-                  accessibilityRole="button"
                   onPress={() => void saveToPhone()}
                   disabled={saving}
                   style={[styles.saveButton, { backgroundColor: colors.primary }]}
                 >
-                  <Feather name="download" size={16} color={colors.primaryForeground} />
+                  <Feather name="download" size={18} color={colors.primaryForeground} />
                   <Text style={[styles.saveText, { color: colors.primaryForeground }]}>
                     Save to phone
                   </Text>
-                </Pressable>
+                </PressableScale>
               </View>
             </View>
           </View>
@@ -231,85 +236,54 @@ export default function GalleryScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.7 },
-  title: { fontSize: 34, fontWeight: '700', letterSpacing: -1.2, marginTop: 4 },
-  totalBadge: {
-    minWidth: 42,
-    height: 42,
-    borderWidth: 1,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  totalText: { fontSize: 12, fontWeight: '700' },
-  subtitle: { fontSize: 13, marginTop: 5, marginBottom: 22 },
-  emptyCard: {
-    borderWidth: 1,
-    borderRadius: 22,
-    alignItems: 'center',
-    paddingHorizontal: 23,
-    paddingVertical: 30,
-    marginTop: 8,
-  },
-  emptyIcon: { width: 62, height: 62, borderRadius: 31, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { fontSize: 17, fontWeight: '700', marginTop: 16 },
-  emptyCopy: { fontSize: 12, lineHeight: 19, maxWidth: 255, textAlign: 'center', marginTop: 6 },
-  captureButton: {
-    borderRadius: 21,
-    paddingVertical: 12,
-    paddingHorizontal: 17,
+  header: { paddingHorizontal: 20, marginBottom: 18 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36, paddingBottom: 80 },
+  emptyIcon: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
+  emptyCopy: { textAlign: 'center', marginTop: 6, maxWidth: 280 },
+  emptyButton: {
+    height: 52,
+    borderRadius: 26,
+    paddingHorizontal: 24,
     flexDirection: 'row',
-    gap: 7,
     alignItems: 'center',
-    marginTop: 18,
+    gap: 9,
+    marginTop: 24,
   },
-  captureText: { fontSize: 12, fontWeight: '700' },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  photoTile: { width: '48.5%', borderRadius: 16, overflow: 'hidden', borderWidth: 1 },
-  secondTile: {},
-  photoImage: { width: '100%', aspectRatio: 0.77, backgroundColor: '#252923' },
-  photoCaption: { paddingHorizontal: 9, paddingVertical: 9 },
-  photoRecipe: { color: '#f2eee2', fontSize: 11, fontWeight: '700' },
-  photoDate: { color: '#b5b3a8', fontSize: 9, marginTop: 4 },
-  privateNote: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 18 },
-  privateCopy: { fontSize: 10 },
-  detailScreen: { flex: 1, justifyContent: 'space-between' },
-  detailImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: '#121512' },
-  detailTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
-  detailIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  emptyButtonText: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
+
+  viewer: { flex: 1, justifyContent: 'space-between', backgroundColor: '#000' },
+  viewerTop: {
+    paddingHorizontal: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(14,17,14,0.58)',
+    justifyContent: 'space-between',
   },
-  detailTopTitle: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 1.6 },
-  detailBottom: { paddingHorizontal: 20, paddingTop: 40, backgroundColor: 'rgba(15,18,15,0.8)' },
-  detailRecipe: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
-  detailMeta: { color: '#f2eee2', fontSize: 11, marginTop: 6 },
-  detailActions: { flexDirection: 'row', gap: 9, marginTop: 17 },
+  roundHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  roundGlass: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  recipePill: { height: 32, paddingHorizontal: 14, justifyContent: 'center' },
+  recipePillText: { fontFamily: fonts.semibold, fontSize: 13, color: '#fff', letterSpacing: -0.1 },
+  viewerBottom: { paddingHorizontal: 20, paddingTop: 40, backgroundColor: 'rgba(0,0,0,0.6)' },
+  viewerMeta: { fontFamily: fonts.regular, fontSize: 13, color: 'rgba(255,255,255,0.7)' },
+  viewerActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   removeButton: {
     flex: 1,
-    height: 47,
-    borderRadius: 24,
-    borderColor: 'rgba(255,255,255,0.4)',
-    borderWidth: 1,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
   },
-  actionText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  removeText: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
   saveButton: {
-    flex: 1,
-    height: 47,
-    borderRadius: 24,
+    flex: 1.3,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
   },
-  saveText: { fontSize: 11, fontWeight: '700' },
+  saveText: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
 });

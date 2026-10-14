@@ -1,40 +1,99 @@
 /**
- * Semantic design tokens for the mobile app.
+ * Semantic design tokens.
  *
- * These tokens mirror the naming conventions used in web artifacts (index.css)
- * so that multi-artifact projects share a cohesive visual identity.
- *
- * Replace the placeholder values below with values that match the project's
- * brand. If a sibling web artifact exists, read its index.css and convert the
- * HSL values to hex so both artifacts use the same palette.
- *
- * To add dark mode, add a `dark` key with the same token names.
- * The useColors() hook will automatically pick it up.
+ * Dark is the primary theme: a true-black (#000) OLED background so the S24 Ultra's
+ * AMOLED pixels switch off, with raised surfaces in near-black greys (Apple "elevated"
+ * style). Light is a secondary, iOS-like grouped palette. Both share the same token
+ * names so screens never branch on the scheme.
  */
 
-const colors = {
-  light: {
-    text: '#f2eee2',
-    tint: '#df704d',
-    background: '#171a16',
-    foreground: '#f2eee2',
-    card: '#222720',
-    cardForeground: '#f2eee2',
-    primary: '#df704d',
-    primaryForeground: '#171a16',
-    secondary: '#30362d',
-    secondaryForeground: '#e5e2d7',
-    muted: '#292e27',
-    mutedForeground: '#a7aa9f',
-    accent: '#87916e',
-    accentForeground: '#171a16',
-    destructive: '#dc665a',
-    destructiveForeground: '#ffffff',
-    border: '#3b4038',
-    input: '#3b4038',
-  },
-
-  radius: 16,
+type Palette = {
+  text: string;
+  tint: string;
+  background: string;
+  /** Slightly raised surface (cards, grouped rows). */
+  card: string;
+  cardForeground: string;
+  foreground: string;
+  primary: string;
+  primaryForeground: string;
+  secondary: string;
+  secondaryForeground: string;
+  muted: string;
+  mutedForeground: string;
+  accent: string;
+  accentForeground: string;
+  destructive: string;
+  destructiveForeground: string;
+  border: string;
+  input: string;
+  /** 1px separators between rows. */
+  separator: string;
+  /** Translucent fill used for glass surfaces (tab bar, chips, overlays). */
+  glass: string;
+  /** Hairline highlight on the edge of glass surfaces. */
+  glassBorder: string;
+  /** Blur tint for expo-blur. */
+  blurTint: 'dark' | 'light';
 };
+
+const dark: Palette = {
+  text: '#ffffff',
+  tint: '#ff9f43',
+  background: '#000000',
+  card: '#1c1c1e',
+  cardForeground: '#ffffff',
+  foreground: '#ffffff',
+  primary: '#ff9f43',
+  primaryForeground: '#1a0f00',
+  secondary: '#2c2c2e',
+  secondaryForeground: '#ffffff',
+  muted: '#2c2c2e',
+  mutedForeground: '#8e8e93',
+  accent: '#ffb86b',
+  accentForeground: '#1a0f00',
+  destructive: '#ff453a',
+  destructiveForeground: '#ffffff',
+  border: 'rgba(255,255,255,0.12)',
+  input: '#2c2c2e',
+  separator: 'rgba(255,255,255,0.10)',
+  glass: 'rgba(38,38,40,0.72)',
+  glassBorder: 'rgba(255,255,255,0.14)',
+  blurTint: 'dark',
+};
+
+const light: Palette = {
+  text: '#000000',
+  tint: '#e8780a',
+  background: '#f2f2f7',
+  card: '#ffffff',
+  cardForeground: '#000000',
+  foreground: '#000000',
+  primary: '#e8780a',
+  primaryForeground: '#ffffff',
+  secondary: '#e5e5ea',
+  secondaryForeground: '#000000',
+  muted: '#e5e5ea',
+  mutedForeground: '#6c6c70',
+  accent: '#c2630a',
+  accentForeground: '#ffffff',
+  destructive: '#ff3b30',
+  destructiveForeground: '#ffffff',
+  border: 'rgba(0,0,0,0.12)',
+  input: '#e5e5ea',
+  separator: 'rgba(0,0,0,0.10)',
+  glass: 'rgba(250,250,252,0.78)',
+  glassBorder: 'rgba(255,255,255,0.7)',
+  blurTint: 'light',
+};
+
+const colors = {
+  dark,
+  light,
+  /** Default corner radius for cards. */
+  radius: 24,
+};
+
+export type Colors = Palette & { radius: number };
 
 export default colors;

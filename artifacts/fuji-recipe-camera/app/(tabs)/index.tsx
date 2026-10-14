@@ -1,245 +1,279 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Image,
-  ImageBackground,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Image, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Glass } from '@/components/Glass';
+import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
-import { recipes } from '@/constants/recipes';
+import { recipes, type FilmRecipe } from '@/constants/recipes';
+import { getRecipeImage } from '@/constants/recipe-images';
+import { fonts, type } from '@/constants/typography';
 import { useAppState } from '@/context/AppState';
 
-const recipeImages = [
-  require('@/assets/images/recipe-coast.jpg'),
-  require('@/assets/images/recipe-autumn.jpg'),
-];
+/** Space reserved so content clears the floating tab bar. */
+const TAB_BAR_CLEARANCE = 104;
+
+function Segmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: { key: string; label: string }[];
+  value: string;
+  onChange: (key: string) => void;
+}) {
+  const colors = useColors();
+  const width = useSharedValue(0);
+  const index = options.findIndex((option) => option.key === value);
+  const x = useSharedValue(0);
+
+  const thumb = useAnimatedStyle(() => ({
+    width: width.value / options.length,
+    transform: [{ translateX: x.value }],
+  }));
+
+  return (
+    <View
+      onLayout={(event) => {
+        width.value = event.nativeEvent.layout.width - 4;
+        x.value = (index * (event.nativeEvent.layout.width - 4)) / options.length;
+      }}
+      style={[styles.segmented, { backgroundColor: colors.muted }]}
+    >
+      <Animated.View style={[styles.segmentThumb, { backgroundColor: colors.card }, thumb]} />
+      {options.map((option, i) => (
+        <PressableScale
+          key={option.key}
+          testID={`segment-${option.key}`}
+          accessibilityState={{ selected: option.key === value }}
+          haptic={Haptics.ImpactFeedbackStyle.Light}
+          pressedScale={0.97}
+          onPress={() => {
+            x.value = withSpring((i * width.value) / options.length, {
+              damping: 20,
+              stiffness: 320,
+            });
+            onChange(option.key);
+          }}
+          style={styles.segment}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              { color: option.key === value ? colors.foreground : colors.mutedForeground },
+            ]}
+          >
+            {option.label}
+          </Text>
+        </PressableScale>
+      ))}
+    </View>
+  );
+}
+
+function HeartButton({
+  recipe,
+  tint,
+  glass = false,
+}: {
+  recipe: FilmRecipe;
+  tint?: string;
+  glass?: boolean;
+}) {
+  const colors = useColors();
+  const { isFavorite, toggleFavorite } = useAppState();
+  const saved = isFavorite(recipe.id);
+  const icon = (
+    <Ionicons
+      name={saved ? 'heart' : 'heart-outline'}
+      size={20}
+      color={saved ? colors.primary : (tint ?? colors.mutedForeground)}
+    />
+  );
+  return (
+    <PressableScale
+      testID={`favorite-${recipe.id}`}
+      accessibilityLabel={saved ? 'Remove from saved recipes' : 'Save recipe'}
+      pressedScale={0.85}
+      haptic={Haptics.ImpactFeedbackStyle.Medium}
+      onPress={() => toggleFavorite(recipe.id)}
+      style={styles.heartHit}
+    >
+      {glass ? (
+        <Glass forceDark radius={22} style={styles.heartGlass}>
+          {icon}
+        </Glass>
+      ) : (
+        icon
+      )}
+    </PressableScale>
+  );
+}
 
 export default function RecipeLibraryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { favorites, isFavorite, setActiveRecipeId, toggleFavorite } = useAppState();
-  const [savedOnly, setSavedOnly] = useState(false);
+  const { favorites } = useAppState();
+  const [filter, setFilter] = useState<'all' | 'saved'>('all');
+  const savedOnly = filter === 'saved';
   const featured = recipes[0];
   const visibleRecipes = useMemo(
     () => (savedOnly ? recipes.filter((recipe) => favorites.includes(recipe.id)) : recipes),
     [favorites, savedOnly],
   );
 
-  const openCamera = (recipeId: string) => {
-    setActiveRecipeId(recipeId);
-    router.navigate('/camera');
-  };
+  const openRecipe = (id: string) => router.push({ pathname: '/recipe/[id]', params: { id } });
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingTop: Platform.OS === 'web' ? 67 : insets.top + 8,
-            paddingBottom: Platform.OS === 'web' ? 104 : 26,
-          },
-        ]}
+        contentContainerStyle={{
+          paddingTop: insets.top + 14,
+          paddingBottom: insets.bottom + TAB_BAR_CLEARANCE,
+          paddingHorizontal: 20,
+        }}
       >
-        <View style={styles.topBar}>
-          <View style={styles.brand}>
-            <View style={[styles.brandMark, { borderColor: colors.primary }]}>
-              <Feather name="aperture" size={18} color={colors.primary} />
-            </View>
-            <View>
-              <Text style={[styles.brandName, { color: colors.foreground }]}>FIELD NOTES</Text>
-              <Text style={[styles.brandCaption, { color: colors.mutedForeground }]}>
-                RECIPE CAMERA
-              </Text>
-            </View>
-          </View>
-          <Pressable
-            testID="toggle-saved-recipes"
-            accessibilityRole="button"
-            accessibilityLabel={savedOnly ? 'Show all recipes' : 'Show saved recipes'}
-            onPress={() => setSavedOnly((value) => !value)}
-            style={[
-              styles.savedToggle,
-              { borderColor: savedOnly ? colors.primary : colors.border },
-            ]}
-          >
-            <Feather
-              name={savedOnly ? 'heart' : 'bookmark'}
-              size={16}
-              color={savedOnly ? colors.primary : colors.foreground}
-            />
-          </Pressable>
-        </View>
+        <Text style={[type.largeTitle, { color: colors.foreground }]}>Recipes</Text>
+        <Text style={[type.subhead, styles.subtitle, { color: colors.mutedForeground }]}>
+          Film simulation recipes for your S24 Ultra.
+        </Text>
 
-        <View style={styles.headingBlock}>
-          <Text style={[styles.eyebrow, { color: colors.primary }]}>
-            {savedOnly ? 'YOUR COLLECTION' : 'FILM, IN YOUR POCKET'}
-          </Text>
-          <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-            {savedOnly ? 'Saved recipes.' : 'Find your film.'}
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            Fuji-inspired recipes, ready for the S24 Ultra.
-          </Text>
+        <View style={styles.segmentWrap}>
+          <Segmented
+            options={[
+              { key: 'all', label: 'All' },
+              { key: 'saved', label: 'Saved' },
+            ]}
+            value={filter}
+            onChange={(key) => setFilter(key as 'all' | 'saved')}
+          />
         </View>
 
         {!savedOnly && (
-          <View style={styles.featuredWrap}>
-            <ImageBackground
-              source={recipeImages[featured.image]}
-              imageStyle={styles.featuredImage}
-              style={styles.featured}
-              resizeMode="cover"
+          <Animated.View entering={FadeInDown.springify().damping(18)}>
+            <PressableScale
+              testID="open-featured-recipe"
+              accessibilityLabel={`Open ${featured.name}`}
+              pressedScale={0.985}
+              onPress={() => openRecipe(featured.id)}
+              style={styles.featuredWrap}
             >
-              <LinearGradient
-                colors={['rgba(16, 20, 17, 0.03)', 'rgba(16, 20, 17, 0.28)', 'rgba(16, 20, 17, 0.94)']}
-                locations={[0, 0.45, 1]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.featuredTopRow}>
-                <View style={styles.featuredLabel}>
-                  <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
-                  <Text style={styles.featuredLabelText}>RECIPE OF THE WEEK</Text>
+              <ImageBackground
+                source={getRecipeImage(featured)}
+                style={styles.featured}
+                imageStyle={styles.featuredImage}
+              >
+                <LinearGradient
+                  colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.82)']}
+                  locations={[0.2, 0.55, 1]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.featuredTop}>
+                  <Glass forceDark radius={15} style={styles.featuredBadge}>
+                    <Text style={styles.featuredBadgeText}>RECIPE OF THE WEEK</Text>
+                  </Glass>
+                  <HeartButton recipe={featured} tint="#fff" glass />
                 </View>
-                <Pressable
-                  testID={`favorite-${featured.id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={isFavorite(featured.id) ? 'Remove from saved recipes' : 'Save recipe'}
-                  onPress={() => toggleFavorite(featured.id)}
-                  style={styles.imageIconButton}
-                >
-                  <Feather
-                    name={isFavorite(featured.id) ? 'heart' : 'heart'}
-                    size={17}
-                    color={isFavorite(featured.id) ? colors.primary : '#fff'}
-                  />
-                </Pressable>
-              </View>
-              <View style={styles.featuredDetails}>
-                <Text style={styles.featuredSimulation}>{featured.simulation.toUpperCase()}</Text>
-                <Text style={styles.featuredTitle}>{featured.name}</Text>
-                <Text style={styles.featuredDescription}>{featured.description}</Text>
-                <View style={styles.featuredBottomRow}>
-                  <Text style={styles.featuredSettings}>{featured.settings[0]}  ·  WB Daylight</Text>
-                  <Pressable
-                    testID="use-featured-recipe"
-                    accessibilityRole="button"
-                    onPress={() => openCamera(featured.id)}
-                    style={[styles.useButton, { backgroundColor: colors.primary }]}
-                  >
-                    <Text style={[styles.useButtonText, { color: colors.primaryForeground }]}>
-                      Try recipe
-                    </Text>
-                    <Feather name="arrow-up-right" size={15} color={colors.primaryForeground} />
-                  </Pressable>
+                <View style={styles.featuredBody}>
+                  <Text style={styles.featuredSim}>{featured.simulation}</Text>
+                  <Text style={styles.featuredTitle}>{featured.name}</Text>
+                  <Text style={styles.featuredDescription} numberOfLines={2}>
+                    {featured.description}
+                  </Text>
                 </View>
-              </View>
-            </ImageBackground>
-          </View>
+              </ImageBackground>
+            </PressableScale>
+          </Animated.View>
         )}
 
-        <View style={styles.sectionHeading}>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-              {savedOnly ? 'Saved for later' : 'Recipe shelf'}
-            </Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground }]}>
-              {savedOnly ? `${visibleRecipes.length} saved` : 'Settings for your next frame'}
-            </Text>
-          </View>
-          <Text style={[styles.count, { color: colors.mutedForeground }]}>
-            {String(visibleRecipes.length).padStart(2, '0')}
+        <View style={styles.sectionHeader}>
+          <Text style={[type.title2, { color: colors.foreground }]}>
+            {savedOnly ? 'Saved' : 'All recipes'}
+          </Text>
+          <Text style={[type.subhead, { color: colors.mutedForeground }]}>
+            {visibleRecipes.length}
           </Text>
         </View>
 
         {visibleRecipes.length === 0 ? (
-          <View style={[styles.emptyState, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            <Feather name="heart" size={23} color={colors.primary} />
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Nothing saved yet</Text>
-            <Text style={[styles.emptyCopy, { color: colors.mutedForeground }]}>
+          <View style={[styles.empty, { backgroundColor: colors.card }]}>
+            <Ionicons name="heart-outline" size={30} color={colors.primary} />
+            <Text style={[type.headline, styles.emptyTitle, { color: colors.foreground }]}>
+              Nothing saved yet
+            </Text>
+            <Text style={[type.footnote, styles.emptyCopy, { color: colors.mutedForeground }]}>
               Tap the heart on a recipe to keep it here.
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSavedOnly(false)}
-              style={[styles.emptyAction, { backgroundColor: colors.secondary }]}
-            >
-              <Text style={[styles.emptyActionText, { color: colors.foreground }]}>Browse recipes</Text>
-            </Pressable>
           </View>
         ) : (
-          <View style={styles.recipeList}>
-            {visibleRecipes.map((recipe, index) => (
-              <View
+          <View style={styles.list}>
+            {visibleRecipes.map((recipe, i) => (
+              <Animated.View
                 key={recipe.id}
-                style={[
-                  styles.recipeCard,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                  index === 0 && !savedOnly ? styles.firstRecipeCard : null,
-                ]}
+                entering={FadeInDown.delay(60 + i * 45).springify().damping(18)}
               >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Use ${recipe.name}`}
+                <PressableScale
                   testID={`open-recipe-${recipe.id}`}
-                  onPress={() => openCamera(recipe.id)}
-                  style={styles.recipeImagePressable}
+                  accessibilityLabel={`Open ${recipe.name}`}
+                  pressedScale={0.98}
+                  onPress={() => openRecipe(recipe.id)}
+                  style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
                 >
-                  <Image source={recipeImages[recipe.image]} style={styles.recipeImage} />
-                  <View style={[styles.recipeIndex, { backgroundColor: 'rgba(20,24,20,0.72)' }]}>
-                    <Text style={styles.recipeIndexText}>{String(index + 1).padStart(2, '0')}</Text>
-                  </View>
-                  <View style={styles.useIcon}>
-                    <Feather name="arrow-up-right" size={17} color="#f2eee2" />
-                  </View>
-                </Pressable>
-                <View style={styles.recipeInfo}>
-                  <View style={styles.recipeTitleRow}>
-                    <View style={styles.recipeTitleCopy}>
-                      <Text style={[styles.recipeSimulation, { color: colors.accent }]}>
-                        {recipe.simulation.toUpperCase()}
-                      </Text>
-                      <Text style={[styles.recipeName, { color: colors.foreground }]} numberOfLines={1}>
-                        {recipe.name}
-                      </Text>
-                    </View>
-                    <Pressable
-                      testID={`favorite-${recipe.id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={isFavorite(recipe.id) ? 'Remove from saved recipes' : 'Save recipe'}
-                      onPress={() => toggleFavorite(recipe.id)}
-                      style={styles.favoriteButton}
+                  <Image source={getRecipeImage(recipe)} style={styles.cardImage} />
+                  <View style={styles.cardBody}>
+                    <Text
+                      style={[type.overline, { color: colors.primary }]}
+                      numberOfLines={1}
                     >
-                      <Feather
-                        name={isFavorite(recipe.id) ? 'heart' : 'heart'}
-                        size={17}
-                        color={isFavorite(recipe.id) ? colors.primary : colors.mutedForeground}
-                      />
-                    </Pressable>
+                      {recipe.simulation.toUpperCase()}
+                    </Text>
+                    <Text
+                      style={[type.headline, { color: colors.foreground, marginTop: 2 }]}
+                      numberOfLines={1}
+                    >
+                      {recipe.name}
+                    </Text>
+                    <Text
+                      style={[type.footnote, { color: colors.mutedForeground, marginTop: 3 }]}
+                      numberOfLines={2}
+                    >
+                      {recipe.description}
+                    </Text>
+                    <View style={styles.chips}>
+                      {recipe.settings.slice(0, 2).map((setting) => (
+                        <View
+                          key={setting}
+                          style={[styles.chip, { backgroundColor: colors.muted }]}
+                        >
+                          <Text
+                            style={[styles.chipText, { color: colors.mutedForeground }]}
+                            numberOfLines={1}
+                          >
+                            {setting}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                  <Text style={[styles.recipeDescription, { color: colors.mutedForeground }]} numberOfLines={2}>
-                    {recipe.description}
-                  </Text>
-                  <Text style={[styles.recipeSettings, { color: colors.foreground }]} numberOfLines={1}>
-                    {recipe.settings.slice(0, 2).join('  ·  ')}
-                  </Text>
-                </View>
-              </View>
+                  <HeartButton recipe={recipe} />
+                </PressableScale>
+              </Animated.View>
             ))}
           </View>
         )}
 
-        <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>
+        <Text style={[type.caption, styles.disclaimer, { color: colors.mutedForeground }]}>
           Community-inspired settings. Not affiliated with or endorsed by FUJIFILM.
         </Text>
       </ScrollView>
@@ -249,136 +283,63 @@ export default function RecipeLibraryScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: 20 },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandName: { fontSize: 11, fontWeight: '800', letterSpacing: 1.8 },
-  brandCaption: { fontSize: 8, fontWeight: '600', letterSpacing: 2, marginTop: 3 },
-  savedToggle: {
-    width: 40,
+  subtitle: { marginTop: 4 },
+  segmentWrap: { marginTop: 18, marginBottom: 20 },
+  segmented: {
     height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headingBlock: { marginTop: 27, marginBottom: 18 },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 2 },
-  pageTitle: { fontSize: 34, fontWeight: '700', letterSpacing: -1.4, marginTop: 4 },
-  subtitle: { fontSize: 14, marginTop: 5 },
-  featuredWrap: { borderRadius: 22, overflow: 'hidden', marginBottom: 25 },
-  featured: { height: 370, justifyContent: 'space-between', padding: 17 },
-  featuredImage: { borderRadius: 22 },
-  featuredTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  featuredLabel: {
-    height: 30,
-    paddingHorizontal: 11,
-    borderRadius: 15,
+    borderRadius: 14,
+    padding: 2,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'rgba(20, 24, 20, 0.74)',
   },
-  liveDot: { width: 6, height: 6, borderRadius: 3 },
-  featuredLabelText: { color: '#f2eee2', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  imageIconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(20, 24, 20, 0.65)',
-  },
-  featuredDetails: { gap: 6 },
-  featuredSimulation: { color: '#e3a984', fontSize: 10, fontWeight: '700', letterSpacing: 1.7 },
-  featuredTitle: { color: '#fffaf0', fontSize: 29, lineHeight: 34, fontWeight: '700', letterSpacing: -0.6 },
-  featuredDescription: { color: 'rgba(255, 250, 240, 0.82)', fontSize: 12, lineHeight: 18, maxWidth: 260 },
-  featuredBottomRow: {
-    marginTop: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  featuredSettings: { color: '#f2eee2', fontSize: 9, fontWeight: '600', flex: 1 },
-  useButton: {
-    height: 38,
-    paddingHorizontal: 13,
-    borderRadius: 19,
-    flexDirection: 'row',
-    gap: 5,
-    alignItems: 'center',
-  },
-  useButtonText: { fontSize: 11, fontWeight: '700' },
-  sectionHeading: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: { fontSize: 19, fontWeight: '700', letterSpacing: -0.4 },
-  sectionSubtitle: { marginTop: 3, fontSize: 11 },
-  count: { fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-  recipeList: { gap: 12 },
-  recipeCard: {
-    flexDirection: 'row',
-    minHeight: 144,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 9,
-    gap: 13,
-  },
-  firstRecipeCard: { marginTop: 0 },
-  recipeImagePressable: { width: 106, minHeight: 126, borderRadius: 12, overflow: 'hidden' },
-  recipeImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined },
-  recipeIndex: {
+  segmentThumb: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    minWidth: 25,
-    height: 24,
+    top: 2,
+    left: 2,
+    bottom: 2,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
   },
-  recipeIndexText: { color: '#fff', fontSize: 9, fontWeight: '700' },
-  useIcon: {
-    position: 'absolute',
-    right: 7,
-    bottom: 7,
-    width: 29,
-    height: 29,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(20, 24, 20, 0.7)',
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  segmentText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.15 },
+
+  featuredWrap: { borderRadius: 28, overflow: 'hidden' },
+  featured: { height: 400, justifyContent: 'space-between', padding: 16 },
+  featuredImage: { borderRadius: 28 },
+  featuredTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  featuredBadge: { height: 30, paddingHorizontal: 12, justifyContent: 'center' },
+  featuredBadgeText: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.8, color: '#fff' },
+  featuredBody: { gap: 4, paddingHorizontal: 4, paddingBottom: 4 },
+  featuredSim: { fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 0.2, color: '#ffb86b' },
+  featuredTitle: { fontFamily: fonts.bold, fontSize: 32, lineHeight: 38, letterSpacing: -0.9, color: '#fff' },
+  featuredDescription: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 20, color: 'rgba(255,255,255,0.8)' },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginTop: 30,
+    marginBottom: 14,
   },
-  recipeInfo: { flex: 1, justifyContent: 'center', paddingVertical: 5, paddingRight: 3 },
-  recipeTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  recipeTitleCopy: { flex: 1 },
-  recipeSimulation: { fontSize: 9, fontWeight: '700', letterSpacing: 1.15 },
-  recipeName: { fontSize: 16, fontWeight: '700', marginTop: 3, letterSpacing: -0.2 },
-  favoriteButton: { width: 31, height: 31, alignItems: 'center', justifyContent: 'center' },
-  recipeDescription: { fontSize: 10, lineHeight: 15, marginTop: 5 },
-  recipeSettings: { fontSize: 9, fontWeight: '600', marginTop: 7 },
-  emptyState: {
+  list: { gap: 12 },
+  card: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 24,
-    borderWidth: 1,
-    borderRadius: 20,
+    gap: 14,
+    padding: 10,
+    paddingRight: 6,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  emptyTitle: { fontSize: 16, fontWeight: '700', marginTop: 12 },
-  emptyCopy: { textAlign: 'center', fontSize: 12, lineHeight: 18, marginTop: 5, maxWidth: 230 },
-  emptyAction: { borderRadius: 18, paddingHorizontal: 15, paddingVertical: 10, marginTop: 15 },
-  emptyActionText: { fontSize: 11, fontWeight: '700' },
-  disclaimer: { fontSize: 9, textAlign: 'center', lineHeight: 14, marginTop: 22, marginBottom: 2 },
+  cardImage: { width: 96, height: 112, borderRadius: 16 },
+  cardBody: { flex: 1, justifyContent: 'center' },
+  chips: { flexDirection: 'row', gap: 6, marginTop: 9, flexWrap: 'nowrap' },
+  chip: { borderRadius: 10, paddingHorizontal: 8, height: 22, justifyContent: 'center', flexShrink: 1 },
+  chipText: { fontFamily: fonts.medium, fontSize: 11 },
+
+  heartHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  heartGlass: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+
+  empty: { alignItems: 'center', padding: 32, borderRadius: 24 },
+  emptyTitle: { marginTop: 12 },
+  emptyCopy: { textAlign: 'center', marginTop: 4, maxWidth: 240 },
+  disclaimer: { textAlign: 'center', marginTop: 28 },
 });

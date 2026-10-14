@@ -6,7 +6,6 @@ import {
   Linking,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,12 +17,27 @@ import type { CameraType, FlashMode } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Glass } from '@/components/Glass';
+import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
 import { recipes } from '@/constants/recipes';
+import { fonts, type } from '@/constants/typography';
 import { useAppState, type SavedPhoto } from '@/context/AppState';
 import { renderFilmLook } from '@/lib/film-look';
+
+/**
+ * Lens pills. Only the main camera is wired up right now; the others are shown so the
+ * layout is final, and are disabled until lens switching is built (see NOTES.md).
+ */
+const LENSES = [
+  { label: '0.6', enabled: false },
+  { label: '1×', enabled: true },
+  { label: '3', enabled: false },
+  { label: '5', enabled: false },
+] as const;
 
 function PermissionPanel({
   title,
@@ -42,13 +56,12 @@ function PermissionPanel({
 }) {
   return (
     <View style={[styles.permissionPage, { backgroundColor: colors.background }]}>
-      <View style={[styles.permissionLens, { borderColor: colors.border }]}>
-        <Feather name="camera" size={27} color={colors.primary} />
+      <View style={[styles.permissionLens, { backgroundColor: colors.card }]}>
+        <Feather name="camera" size={30} color={colors.primary} />
       </View>
-      <Text style={[styles.permissionTitle, { color: colors.foreground }]}>{title}</Text>
-      <Text style={[styles.permissionCopy, { color: colors.mutedForeground }]}>{copy}</Text>
-      <Pressable
-        accessibilityRole="button"
+      <Text style={[type.title1, styles.permissionTitle, { color: colors.foreground }]}>{title}</Text>
+      <Text style={[type.callout, styles.permissionCopy, { color: colors.mutedForeground }]}>{copy}</Text>
+      <PressableScale
         onPress={onPress}
         disabled={busy}
         style={[styles.permissionButton, { backgroundColor: colors.primary }]}
@@ -60,7 +73,7 @@ function PermissionPanel({
             {button}
           </Text>
         )}
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }
@@ -75,7 +88,6 @@ export default function CameraScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
   const [showGrid, setShowGrid] = useState(false);
-  const [showRecipes, setShowRecipes] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<SavedPhoto | null>(null);
@@ -123,8 +135,8 @@ export default function CameraScreen() {
       cameraPermission.status === 'denied' && !cameraPermission.canAskAgain;
     return (
       <PermissionPanel
-        title="Give the camera room"
-        copy="Allow camera access to frame a shot and preview your chosen film recipe."
+        title="Allow camera access"
+        copy="Frame a shot and preview your chosen film recipe in live view."
         button={permanentlyDenied ? 'Open settings' : 'Allow camera'}
         onPress={() => {
           if (permanentlyDenied) {
@@ -138,8 +150,10 @@ export default function CameraScreen() {
     );
   }
 
+  // The sensor captures 4:3, so the preview is a 4:3 frame too. What you see is
+  // exactly what is saved, instead of a cropped full-screen view.
   const previewHeight = Math.round((screenWidth * 4) / 3);
-  const previewTop = insets.top + 58;
+  const previewTop = insets.top + 62;
 
   const discardOriginal = (uri: string | null) => {
     if (uri) void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
@@ -241,9 +255,14 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.cameraScreen}>
-      {/* The sensor captures 4:3, so the preview is a 4:3 frame too. What you
-          see is exactly what is saved, instead of a cropped full-screen view. */}
-      <View style={[styles.previewFrame, { top: previewTop, height: previewHeight }]}>
+      {isFocused && <StatusBar style="light" />}
+
+      <View
+        style={[
+          styles.previewFrame,
+          { top: previewTop, height: previewHeight },
+        ]}
+      >
         {isFocused && (
           <CameraView
             ref={cameraRef}
@@ -260,177 +279,198 @@ export default function CameraScreen() {
           style={[StyleSheet.absoluteFill, { backgroundColor: activeRecipe.look.previewTint }]}
         />
         {showGrid && (
-          <View pointerEvents="none" style={styles.grid}>
-            <View style={styles.gridVerticalOne} />
-            <View style={styles.gridVerticalTwo} />
-            <View style={styles.gridHorizontalOne} />
-            <View style={styles.gridHorizontalTwo} />
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <View style={[styles.gridLine, styles.gridV, { left: '33.33%' }]} />
+            <View style={[styles.gridLine, styles.gridV, { left: '66.66%' }]} />
+            <View style={[styles.gridLine, styles.gridH, { top: '33.33%' }]} />
+            <View style={[styles.gridLine, styles.gridH, { top: '66.66%' }]} />
           </View>
         )}
+
+        {/* Lens pills float at the bottom of the viewfinder, like the stock camera. */}
+        <View pointerEvents="box-none" style={styles.lensWrap}>
+          <Glass forceDark radius={24} style={styles.lensBar}>
+            <View style={styles.lensRow}>
+              {LENSES.map((lens) => (
+                <PressableScale
+                  key={lens.label}
+                  disabled={!lens.enabled}
+                  accessibilityLabel={`${lens.label} lens${lens.enabled ? '' : ', not available yet'}`}
+                  accessibilityState={{ disabled: !lens.enabled, selected: lens.enabled }}
+                  haptic={false}
+                  style={[
+                    styles.lensPill,
+                    lens.enabled && { backgroundColor: 'rgba(255,255,255,0.22)' },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.lensText,
+                      { color: lens.enabled ? colors.primary : 'rgba(255,255,255,0.38)' },
+                    ]}
+                  >
+                    {lens.label}
+                  </Text>
+                </PressableScale>
+              ))}
+            </View>
+          </Glass>
+        </View>
       </View>
 
-      <View style={[styles.cameraTopBar, { paddingTop: insets.top + 10 }]}>
-        <Pressable
-          accessibilityRole="button"
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <PressableScale
           accessibilityLabel="Back to recipes"
           onPress={() => router.navigate('/')}
-          style={styles.cameraIconButton}
+          style={styles.roundHit}
         >
-          <Feather name="chevron-left" size={22} color="#fff" />
-        </Pressable>
-        <View style={styles.previewBadge}>
-          <View style={[styles.previewDot, { backgroundColor: colors.primary }]} />
-          <Text style={styles.previewBadgeText}>LIVE VIEW</Text>
-        </View>
-        <Pressable
-          testID="toggle-grid"
-          accessibilityRole="button"
-          accessibilityLabel={showGrid ? 'Hide framing grid' : 'Show framing grid'}
-          onPress={() => setShowGrid((value) => !value)}
-          style={styles.cameraIconButton}
-        >
-          <Feather name="grid" size={17} color={showGrid ? colors.primary : '#fff'} />
-        </Pressable>
-      </View>
+          <Glass forceDark radius={22} style={styles.roundGlass}>
+            <Feather name="chevron-left" size={22} color="#fff" />
+          </Glass>
+        </PressableScale>
 
-      <View
-        style={[
-          styles.cameraBottom,
-          { paddingBottom: Math.max(insets.bottom, 10) + 18 },
-        ]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setShowRecipes(true)}
-          style={styles.recipePicker}
-        >
-          <View style={styles.recipePickerText}>
-            <Text style={styles.recipePickerLabel}>FILM RECIPE</Text>
-            <Text style={styles.recipePickerName} numberOfLines={1}>{activeRecipe.name}</Text>
+        <Glass forceDark radius={16} style={styles.livePill}>
+          <View style={styles.liveRow}>
+            <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
+            <Text style={styles.liveText}>Live view</Text>
           </View>
-          <Feather name="chevron-up" size={17} color="#f2eee2" />
-        </Pressable>
+        </Glass>
 
-        <View style={styles.shutterRow}>
-          <Pressable
+        <View style={styles.topRight}>
+          <PressableScale
             testID="toggle-flash"
-            accessibilityRole="button"
             accessibilityLabel={`Flash ${flash === 'off' ? 'off' : 'on'}`}
             onPress={() => setFlash((value) => (value === 'off' ? 'on' : 'off'))}
-            style={styles.cameraControl}
+            style={styles.roundHit}
           >
-            <Feather name={flash === 'off' ? 'zap-off' : 'zap'} size={19} color="#f2eee2" />
-            <Text style={styles.cameraControlLabel}>{flash === 'off' ? 'OFF' : 'ON'}</Text>
-          </Pressable>
+            <Glass forceDark radius={22} style={styles.roundGlass}>
+              <Feather
+                name={flash === 'off' ? 'zap-off' : 'zap'}
+                size={18}
+                color={flash === 'off' ? '#fff' : colors.primary}
+              />
+            </Glass>
+          </PressableScale>
+          <PressableScale
+            testID="toggle-grid"
+            accessibilityLabel={showGrid ? 'Hide framing grid' : 'Show framing grid'}
+            onPress={() => setShowGrid((value) => !value)}
+            style={styles.roundHit}
+          >
+            <Glass forceDark radius={22} style={styles.roundGlass}>
+              <Feather name="grid" size={18} color={showGrid ? colors.primary : '#fff'} />
+            </Glass>
+          </PressableScale>
+        </View>
+      </View>
 
-          <Pressable
+      <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, 12) + 14 }]}>
+        {/* Recipe carousel: one swipe and tap to change the look. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.carousel}
+        >
+          {recipes.map((recipe) => {
+            const selected = recipe.id === activeRecipeId;
+            return (
+              <PressableScale
+                key={recipe.id}
+                testID={`select-${recipe.id}`}
+                accessibilityLabel={`${recipe.name}${selected ? ', selected' : ''}`}
+                accessibilityState={{ selected }}
+                haptic={Haptics.ImpactFeedbackStyle.Light}
+                pressedScale={0.94}
+                onPress={() => setActiveRecipeId(recipe.id)}
+                style={[
+                  styles.recipeChip,
+                  selected
+                    ? { backgroundColor: colors.primary }
+                    : { backgroundColor: 'rgba(255,255,255,0.12)' },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.recipeSwatch,
+                    {
+                      backgroundColor: recipe.look.previewTint,
+                      borderColor: selected ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)',
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.recipeChipText,
+                    { color: selected ? colors.primaryForeground : '#fff' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {recipe.name}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.shutterRow}>
+          <PressableScale
+            accessibilityLabel={`Open ${activeRecipe.name} details`}
+            onPress={() =>
+              router.push({ pathname: '/recipe/[id]', params: { id: activeRecipeId } })
+            }
+            style={styles.sideButton}
+          >
+            <Glass forceDark radius={28} style={styles.sideGlass}>
+              <Feather name="sliders" size={22} color="#fff" />
+            </Glass>
+          </PressableScale>
+
+          <PressableScale
             testID="take-photo"
-            accessibilityRole="button"
             accessibilityLabel="Take photo"
             onPress={() => void takeShot()}
             disabled={!isReady || isCapturing}
-            style={({ pressed }) => [
+            haptic={false}
+            pressedScale={0.92}
+            style={[
               styles.shutterOuter,
-              { opacity: !isReady || isCapturing ? 0.55 : pressed ? 0.7 : 1 },
+              { opacity: !isReady || isCapturing ? 0.55 : 1 },
             ]}
           >
             {isCapturing ? (
-              <ActivityIndicator size="large" color="#171a16" />
+              <ActivityIndicator size="large" color="#111" />
             ) : (
               <View style={styles.shutterInner} />
             )}
-          </Pressable>
+          </PressableScale>
 
-          <Pressable
+          <PressableScale
             testID="flip-camera"
-            accessibilityRole="button"
             accessibilityLabel="Switch camera"
             onPress={() => setFacing((value) => (value === 'back' ? 'front' : 'back'))}
-            style={styles.cameraControl}
+            style={styles.sideButton}
           >
-            <Feather name="refresh-cw" size={19} color="#f2eee2" />
-            <Text style={styles.cameraControlLabel}>FLIP</Text>
-          </Pressable>
+            <Glass forceDark radius={28} style={styles.sideGlass}>
+              <Feather name="refresh-cw" size={22} color="#fff" />
+            </Glass>
+          </PressableScale>
         </View>
-        <Text style={styles.cameraHint}>
+
+        <Text style={styles.hint}>
           {progress
-            ? `${progress.label.toUpperCase()}…  ${progress.percent}%`
-            : 'TAP TO CAPTURE  ·  SAVED WITH LOOK'}
+            ? `${progress.label}…  ${progress.percent}%`
+            : 'Live view shows a tint · full recipe applied on capture'}
         </Text>
       </View>
 
       {!isReady && !isCapturing && (
-        <View pointerEvents="none" style={styles.loadingCamera}>
-          <ActivityIndicator color="#f2eee2" />
+        <View
+          pointerEvents="none"
+          style={[styles.loadingCamera, { top: previewTop, height: previewHeight }]}
+        >
+          <ActivityIndicator color="#fff" />
         </View>
       )}
-
-      <Modal
-        visible={showRecipes}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowRecipes(false)}
-      >
-        <View style={styles.modalShade}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowRecipes(false)} />
-          <View
-            style={[
-              styles.recipeSheet,
-              { backgroundColor: colors.card, paddingBottom: Math.max(insets.bottom, 18) + 12 },
-            ]}
-          >
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeading}>
-              <View>
-                <Text style={[styles.sheetEyebrow, { color: colors.primary }]}>CHOOSE A LOOK</Text>
-                <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Film recipes</Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close recipe selector"
-                onPress={() => setShowRecipes(false)}
-                style={styles.sheetClose}
-              >
-                <Feather name="x" size={19} color={colors.foreground} />
-              </Pressable>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {recipes.map((recipe) => {
-                const selected = recipe.id === activeRecipeId;
-                return (
-                  <Pressable
-                    key={recipe.id}
-                    testID={`select-${recipe.id}`}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setActiveRecipeId(recipe.id);
-                      setShowRecipes(false);
-                    }}
-                    style={[
-                      styles.sheetRecipeRow,
-                      { borderColor: selected ? colors.primary : colors.border },
-                    ]}
-                  >
-                    <View style={[styles.recipeSwatch, { backgroundColor: recipe.look.previewTint }]} />
-                    <View style={styles.sheetRecipeCopy}>
-                      <Text style={[styles.sheetRecipeName, { color: colors.foreground }]}>
-                        {recipe.name}
-                      </Text>
-                      <Text style={[styles.sheetRecipeMeta, { color: colors.mutedForeground }]}>
-                        {recipe.simulation}  ·  {recipe.settings[0]}
-                      </Text>
-                    </View>
-                    {selected && <Feather name="check" size={17} color={colors.primary} />}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <Text style={[styles.sheetNote, { color: colors.mutedForeground }]}>
-              The live view only shows a colour tint. The saved photo gets the full recipe: tone curve, colour, grain and vignette. Hold “Compare” on the result to see before and after.
-            </Text>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={!!capturedPhoto}
@@ -438,60 +478,61 @@ export default function CameraScreen() {
         onRequestClose={closeReview}
       >
         {capturedPhoto && (
-          <View style={[styles.reviewScreen, { backgroundColor: colors.background }]}>
+          <View style={styles.reviewScreen}>
+            <StatusBar style="light" />
             <Image
               source={{ uri: showOriginal && originalUri ? originalUri : capturedPhoto.uri }}
               style={styles.reviewImage}
               resizeMode="contain"
             />
             <View style={[styles.reviewTop, { paddingTop: insets.top + 8 }]}>
-              <Pressable
-                accessibilityRole="button"
+              <PressableScale
                 accessibilityLabel="Close photo preview"
                 onPress={closeReview}
-                style={styles.cameraIconButton}
+                style={styles.roundHit}
               >
-                <Feather name="x" size={19} color="#fff" />
-              </Pressable>
-              <Text style={styles.reviewTitle}>
-                {showOriginal ? 'ORIGINAL' : 'SHOT DEVELOPED'}
-              </Text>
+                <Glass forceDark radius={22} style={styles.roundGlass}>
+                  <Feather name="x" size={20} color="#fff" />
+                </Glass>
+              </PressableScale>
+              <Glass forceDark radius={16} style={styles.livePill}>
+                <Text style={styles.liveText}>{showOriginal ? 'Original' : 'Developed'}</Text>
+              </Glass>
               {originalUri ? (
-                <Pressable
+                <PressableScale
                   testID="compare-original"
-                  accessibilityRole="button"
                   accessibilityLabel="Hold to compare with the original"
+                  haptic={false}
                   onPressIn={() => setShowOriginal(true)}
                   onPressOut={() => setShowOriginal(false)}
-                  style={styles.compareButton}
+                  style={styles.roundHit}
                 >
-                  <Feather name="eye" size={15} color="#fff" />
-                  <Text style={styles.compareText}>COMPARE</Text>
-                </Pressable>
+                  <Glass forceDark radius={22} style={styles.roundGlass}>
+                    <Feather name="eye" size={19} color="#fff" />
+                  </Glass>
+                </PressableScale>
               ) : (
-                <View style={{ width: 40 }} />
+                <View style={styles.roundHit} />
               )}
             </View>
-            <View style={[styles.reviewBottom, { paddingBottom: Math.max(insets.bottom, 18) + 16 }]}>
-              <Text style={styles.reviewRecipe}>{activeRecipe.name.toUpperCase()}</Text>
+            <View style={[styles.reviewBottom, { paddingBottom: Math.max(insets.bottom, 18) + 14 }]}>
+              <Text style={styles.reviewRecipe}>{activeRecipe.name}</Text>
               <Text style={styles.reviewCaption}>
-                {capturedPhoto.width} × {capturedPhoto.height} · Recipe look applied
+                {capturedPhoto.width} × {capturedPhoto.height} · Hold the eye to compare
               </Text>
               <View style={styles.reviewActions}>
-                <Pressable
-                  accessibilityRole="button"
+                <PressableScale
                   onPress={() => {
                     closeReview();
                     router.navigate('/gallery');
                   }}
-                  style={[styles.reviewSecondary, { borderColor: 'rgba(255,255,255,0.42)' }]}
+                  style={styles.reviewSecondary}
                 >
-                  <Feather name="image" size={16} color="#fff" />
-                  <Text style={styles.reviewSecondaryText}>Open gallery</Text>
-                </Pressable>
-                <Pressable
+                  <Feather name="image" size={18} color="#fff" />
+                  <Text style={styles.reviewSecondaryText}>Gallery</Text>
+                </PressableScale>
+                <PressableScale
                   testID="save-photo-to-phone"
-                  accessibilityRole="button"
                   onPress={() => void saveToPhone()}
                   disabled={isSavingToPhone}
                   style={[styles.reviewPrimary, { backgroundColor: colors.primary }]}
@@ -500,13 +541,13 @@ export default function CameraScreen() {
                     <ActivityIndicator size="small" color={colors.primaryForeground} />
                   ) : (
                     <>
-                      <Feather name="download" size={16} color={colors.primaryForeground} />
+                      <Feather name="download" size={18} color={colors.primaryForeground} />
                       <Text style={[styles.reviewPrimaryText, { color: colors.primaryForeground }]}>
                         Save to phone
                       </Text>
                     </>
                   )}
-                </Pressable>
+                </PressableScale>
               </View>
             </View>
           </View>
@@ -517,226 +558,143 @@ export default function CameraScreen() {
 }
 
 const styles = StyleSheet.create({
-  cameraScreen: { flex: 1, backgroundColor: '#111510', overflow: 'hidden' },
+  cameraScreen: { flex: 1, backgroundColor: '#000' },
   previewFrame: {
     position: 'absolute',
     left: 0,
     right: 0,
     overflow: 'hidden',
-    backgroundColor: '#0b0d0b',
+    backgroundColor: '#0b0b0c',
+    borderRadius: 28,
   },
-  compareButton: {
-    height: 32,
-    paddingHorizontal: 11,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: 'rgba(14,17,14,0.58)',
-  },
-  compareText: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  cameraTopBar: {
+  gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.3)' },
+  gridV: { top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
+  gridH: { left: 0, right: 0, height: StyleSheet.hairlineWidth },
+
+  lensWrap: { position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center' },
+  lensBar: { padding: 4 },
+  lensRow: { flexDirection: 'row', gap: 2 },
+  lensPill: { minWidth: 48, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  lensText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.2 },
+
+  topBar: {
     position: 'absolute',
-    left: 18,
-    right: 18,
+    left: 12,
+    right: 12,
     top: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  cameraIconButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-    backgroundColor: 'rgba(14,17,14,0.58)',
-  },
-  previewBadge: {
-    height: 28,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: 'rgba(14,17,14,0.58)',
-  },
-  previewDot: { width: 6, height: 6, borderRadius: 3 },
-  previewBadgeText: { color: '#f2eee2', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  grid: { ...StyleSheet.absoluteFill, justifyContent: 'space-evenly' },
-  gridVerticalOne: {
-    position: 'absolute',
-    left: '33.3%',
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.26)',
-  },
-  gridVerticalTwo: {
-    position: 'absolute',
-    left: '66.6%',
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.26)',
-  },
-  gridHorizontalOne: {
-    position: 'absolute',
-    top: '33.3%',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.26)',
-  },
-  gridHorizontalTwo: {
-    position: 'absolute',
-    top: '66.6%',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.26)',
-  },
-  cameraBottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingBottom: 27,
-    paddingHorizontal: 24,
-    backgroundColor: 'rgba(16,19,16,0.72)',
-  },
-  recipePicker: {
-    alignSelf: 'center',
-    marginTop: 13,
-    marginBottom: 9,
-    minWidth: 210,
-    maxWidth: '88%',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.21)',
-    backgroundColor: 'rgba(32,37,31,0.85)',
-    paddingHorizontal: 13,
-    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
   },
-  recipePickerText: { flex: 1 },
-  recipePickerLabel: { color: '#bfbdaf', fontSize: 8, fontWeight: '700', letterSpacing: 1.2 },
-  recipePickerName: { color: '#f2eee2', fontSize: 13, fontWeight: '700', marginTop: 3 },
-  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cameraControl: { width: 54, alignItems: 'center', gap: 5 },
-  cameraControlLabel: { color: '#e1ddce', fontSize: 8, fontWeight: '700', letterSpacing: 0.9 },
+  topRight: { flexDirection: 'row' },
+  roundHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  roundGlass: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  livePill: { height: 32, paddingHorizontal: 14, justifyContent: 'center' },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveText: { fontFamily: fonts.semibold, fontSize: 13, color: '#fff', letterSpacing: -0.1 },
+
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  carousel: { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
+  recipeChip: {
+    height: 44,
+    borderRadius: 22,
+    paddingLeft: 8,
+    paddingRight: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recipeSwatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1 },
+  recipeChipText: { fontFamily: fonts.semibold, fontSize: 14, letterSpacing: -0.2, maxWidth: 150 },
+
+  shutterRow: {
+    marginTop: 18,
+    paddingHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sideButton: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
+  sideGlass: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   shutterOuter: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 2,
-    borderColor: '#f7f1e4',
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    borderWidth: 4,
+    borderColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  shutterInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#f7f1e4' },
-  cameraHint: {
-    color: '#bab9ae',
-    fontSize: 8,
-    fontWeight: '600',
-    letterSpacing: 1.3,
+  shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff' },
+  hint: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.55)',
     textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 2,
+    marginTop: 14,
   },
   loadingCamera: {
-    ...StyleSheet.absoluteFill,
+    position: 'absolute',
+    left: 0,
+    right: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  permissionPage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 35 },
+
+  permissionPage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36 },
   permissionLens: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 1,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 21,
+    marginBottom: 24,
   },
-  permissionTitle: { fontSize: 24, fontWeight: '700', textAlign: 'center', letterSpacing: -0.5 },
-  permissionCopy: { fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: 9, maxWidth: 290 },
+  permissionTitle: { textAlign: 'center' },
+  permissionCopy: { textAlign: 'center', marginTop: 8, maxWidth: 300 },
   permissionButton: {
-    minWidth: 170,
+    minWidth: 190,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
-    paddingHorizontal: 18,
-    paddingVertical: 13,
-    marginTop: 20,
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    marginTop: 26,
   },
-  permissionButtonText: { fontSize: 13, fontWeight: '700' },
-  modalShade: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.52)' },
-  recipeSheet: { maxHeight: '82%', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20 },
-  sheetHandle: {
-    alignSelf: 'center',
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(242,238,226,0.32)',
-    marginTop: 10,
-    marginBottom: 17,
-  },
-  sheetHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
-  sheetEyebrow: { fontSize: 9, fontWeight: '700', letterSpacing: 1.4 },
-  sheetTitle: { fontSize: 22, fontWeight: '700', marginTop: 3 },
-  sheetClose: { width: 35, height: 35, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  sheetRecipeRow: {
-    minHeight: 62,
-    borderWidth: 1,
-    borderRadius: 15,
-    paddingHorizontal: 11,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-  recipeSwatch: { width: 34, height: 34, borderRadius: 11 },
-  sheetRecipeCopy: { flex: 1 },
-  sheetRecipeName: { fontSize: 13, fontWeight: '700' },
-  sheetRecipeMeta: { fontSize: 10, marginTop: 4 },
-  sheetNote: { fontSize: 10, lineHeight: 15, marginTop: 3, marginBottom: 11 },
-  reviewScreen: { flex: 1, justifyContent: 'space-between' },
-  reviewImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined, backgroundColor: '#121512' },
+  permissionButtonText: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
+
+  reviewScreen: { flex: 1, justifyContent: 'space-between', backgroundColor: '#000' },
+  reviewImage: { ...StyleSheet.absoluteFill, width: undefined, height: undefined },
   reviewTop: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  reviewTitle: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 1.6 },
-  reviewBottom: { paddingHorizontal: 20, paddingTop: 42, backgroundColor: 'rgba(15,18,15,0.78)' },
-  reviewRecipe: { color: '#e4ad8d', fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
-  reviewCaption: { color: '#f2eee2', fontSize: 12, marginTop: 5 },
-  reviewActions: { flexDirection: 'row', gap: 9, marginTop: 17 },
+  reviewBottom: { paddingHorizontal: 20, paddingTop: 48, backgroundColor: 'rgba(0,0,0,0.6)' },
+  reviewRecipe: { fontFamily: fonts.bold, fontSize: 24, letterSpacing: -0.5, color: '#fff' },
+  reviewCaption: { fontFamily: fonts.regular, fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
+  reviewActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
   reviewSecondary: {
     flex: 1,
-    height: 47,
-    borderRadius: 24,
-    borderWidth: 1,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
   },
-  reviewSecondaryText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  reviewSecondaryText: { fontFamily: fonts.semibold, fontSize: 16, color: '#fff', letterSpacing: -0.2 },
   reviewPrimary: {
-    flex: 1,
-    height: 47,
-    borderRadius: 24,
+    flex: 1.3,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
   },
-  reviewPrimaryText: { fontSize: 11, fontWeight: '700' },
+  reviewPrimaryText: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
 });
