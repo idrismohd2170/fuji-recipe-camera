@@ -1,5 +1,6 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 import jpeg from 'jpeg-js';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { FilmRecipe } from '@/constants/recipes';
 import { gradePixels } from '@/lib/film-grade';
@@ -15,6 +16,13 @@ const OUTPUT_QUALITY = 92;
 export type RenderProgress = (label: string, fraction: number) => void;
 
 const nextTick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+function decodePrepared(base64: string) {
+  return jpeg.decode(toByteArray(base64), {
+    useTArray: true,
+    maxMemoryUsageInMB: 1024,
+  });
+}
 
 export async function renderFilmLook(
   sourceUri: string,
@@ -35,14 +43,19 @@ export async function renderFilmLook(
     compress: 0.94,
     base64: true,
   });
-  if (!prepared.base64) throw new Error('The camera image could not be prepared.');
+  // The manipulator writes its result to the cache; it is only needed for the base64 below.
+  const preparedUri = prepared.uri;
+  const preparedBase64 = prepared.base64;
+  if (preparedUri && preparedUri !== sourceUri) {
+    void FileSystem.deleteAsync(preparedUri, { idempotent: true }).catch(() => {});
+  }
+  if (!preparedBase64) throw new Error('The camera image could not be prepared.');
 
   onProgress?.('Preparing photo', 0.1);
   await nextTick();
-  const decoded = jpeg.decode(toByteArray(prepared.base64), {
-    useTArray: true,
-    maxMemoryUsageInMB: 1024,
-  });
+  // Decode in a helper so the (large) base64 string and the byte copy of it are
+  // unreachable before grading starts, which lowers peak memory.
+  const decoded = decodePrepared(preparedBase64);
   onProgress?.('Applying film look', 0.25);
   await nextTick();
 
@@ -59,7 +72,8 @@ export async function renderFilmLook(
   );
   onProgress?.('Saving photo', 1);
   return {
-    base64: fromByteArray(new Uint8Array(encoded.data)),
+    // encoded.data is already a Uint8Array (Buffer); no extra copy needed.
+    base64: fromByteArray(encoded.data),
     width: decoded.width,
     height: decoded.height,
   };
