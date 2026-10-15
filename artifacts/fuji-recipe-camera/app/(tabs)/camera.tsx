@@ -29,6 +29,8 @@ import { recipes } from '@/constants/recipes';
 import { fonts, type } from '@/constants/typography';
 import { useAppState, type SavedPhoto } from '@/context/AppState';
 import { renderFilmLook } from '@/lib/film-look';
+import { reportSaveResult, savePhotosToAlbum } from '@/lib/photo-export';
+import { makeThumbnail } from '@/lib/photo-store';
 
 /**
  * Lens pills. expo-camera on Android (CameraX) cannot choose a physical lens: `selectedLens`
@@ -267,6 +269,7 @@ export default function CameraScreen() {
       await FileSystem.writeAsStringAsync(uri, rendered.base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      const thumbUri = await makeThumbnail(uri, id, rendered.width, rendered.height);
       const photo: SavedPhoto = {
         id,
         uri,
@@ -274,6 +277,7 @@ export default function CameraScreen() {
         createdAt: new Date().toISOString(),
         width: rendered.width,
         height: rendered.height,
+        thumbUri,
       };
       addPhoto(photo);
       // Keep the untouched frame so "hold to compare" can show before/after.
@@ -300,30 +304,7 @@ export default function CameraScreen() {
     saveBusy.current = true;
     setIsSavingToPhone(true);
     try {
-      const mediaLibrary = await import('expo-media-library');
-      const permission = await mediaLibrary.requestPermissionsAsync(true, ['photo']);
-      if (!permission.granted) {
-        Alert.alert(
-          'Photo access is needed',
-          permission.canAskAgain
-            ? 'Allow photo access to copy this shot to your phone gallery.'
-            : 'Enable photo access in Android settings to save this shot to your gallery.',
-          permission.canAskAgain
-            ? [{ text: 'OK' }]
-            : [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Open settings', onPress: () => void Linking.openSettings() },
-              ],
-        );
-        return;
-      }
-      await mediaLibrary.Asset.create(capturedPhoto.uri);
-      Alert.alert('Saved to your gallery', 'The recipe-look photo is now in your phone gallery.');
-    } catch (error) {
-      Alert.alert(
-        'Could not save photo',
-        error instanceof Error ? error.message : 'Try saving again.',
-      );
+      reportSaveResult(await savePhotosToAlbum([capturedPhoto.uri]));
     } finally {
       saveBusy.current = false;
       setIsSavingToPhone(false);

@@ -20,6 +20,8 @@ export type SavedPhoto = {
   createdAt: string;
   width: number;
   height: number;
+  /** Small JPEG for the gallery grid. Missing on photos taken before thumbnails existed. */
+  thumbUri?: string;
 };
 
 type AppStateValue = {
@@ -32,6 +34,7 @@ type AppStateValue = {
   toggleFavorite: (id: string) => void;
   addPhoto: (photo: SavedPhoto) => void;
   removePhoto: (id: string) => void;
+  removePhotos: (ids: string[]) => void;
 };
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -118,6 +121,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setPhotos((current) => current.filter((photo) => photo.id !== id));
   }, []);
 
+  const removePhotos = useCallback((ids: string[]) => {
+    const drop = new Set(ids);
+    setPhotos((current) => current.filter((photo) => !drop.has(photo.id)));
+  }, []);
+
   const value = useMemo<AppStateValue>(
     () => ({
       activeRecipeId,
@@ -129,8 +137,18 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       toggleFavorite,
       addPhoto,
       removePhoto,
+      removePhotos,
     }),
-    [activeRecipeId, addPhoto, favorites, photos, removePhoto, setActiveRecipeId, toggleFavorite],
+    [
+      activeRecipeId,
+      addPhoto,
+      favorites,
+      photos,
+      removePhoto,
+      removePhotos,
+      setActiveRecipeId,
+      toggleFavorite,
+    ],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
