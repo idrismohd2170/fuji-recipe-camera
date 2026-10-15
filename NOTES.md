@@ -46,7 +46,7 @@ The Android package id is `com.idrismohd.fujirecipecamera` (set in `app.json`); 
 
 ## Known issues
 - **Android glass is not a real blur.** `expo-blur` on Android defaults to a semi-transparent fill unless a `BlurTargetView` and `blurMethod` are used. `Glass.tsx` relies on the tinted fill so it looks right either way. [unverified how real blur looks over the camera preview]
-- **Replit leftovers still in the repo** (none block local running): `.replit`, `.replitignore`, `replit.md` (still the empty template), `artifacts/fuji-recipe-camera/.replit-artifact/`, `scripts/build.js`, `server/serve.js`, `server/templates/landing-page.html`, `create-launch` devDependency, root `@replit/connectors-sdk`. Ask the owner before deleting.
+- **Replit leftovers: removed in session 4** (the files listed here before, plus the `build` and `serve` scripts that ran them). Still mentioning Replit, deliberately untouched because they were not on the approved list: `pnpm-workspace.yaml` (catalog and release-age entries) and `artifacts/mockup-sandbox`.
 - `expo-file-system/legacy` is used in several files; it may need migrating later.
 - Gallery tiles load full-resolution JPEGs through expo-image; fine for now but check memory/scroll smoothness with many photos.
 - Camera tab: the `useFocusEffect` unmount logic is preserved to stop the camera running on other tabs; re-test after any navigation change.
@@ -112,3 +112,48 @@ Known, not changed: a photo whose file was deleted outside the app still shows a
 9. **Save to phone:** from review and from the gallery viewer, with photo permission granted, denied, and denied with "don't ask again" (offers Settings). Double-tap the button: one save.
 10. **Gallery:** with 0, 1, 2, 3, 4 and many photos the grid is left-aligned with no stretched tiles; tap a tile opens that photo; Remove deletes it and closes the viewer; the empty state button opens Camera.
 11. **Tab bar:** correct highlight on each tab, hidden on Camera, back when leaving, clear of the gesture bar.
+
+## Session 4 (NEXT STEPS 2 to 7, done without a device)
+
+Nothing here was run on the S24 Ultra. Every step was checked only with `pnpm --filter @workspace/fuji-recipe-camera run typecheck` (0 errors) and `npx expo export --platform android` (bundles), both after the last change. Anything that needs the phone is marked **unverified on device**.
+
+### Step 2: lens pills and zoom
+- `camera.tsx`: the 1×, 3 and 5 pills now set `zoom` on `CameraView`, gliding there in 8 small steps. 0.6 stays disabled. Pills are disabled on the front camera.
+- **Finding (from reading expo-camera 57.0.6 source):** on Android `selectedLens` is iOS-only, so third-party code cannot pick a physical lens through expo-camera. The `zoom` prop maps 0..1 to a CameraX zoom ratio of 1..maxZoomRatio and clamps below 1×, so the 0.6× ultrawide is unreachable. 3× and 5× can only work if the phone's logical back camera switches to the telephoto lenses as the ratio rises. [unverified on device whether it does, and at what ratio]
+- expo-camera does not tell JS the maximum zoom ratio, so `ASSUMED_MAX_ZOOM_RATIO = 10` in `camera.tsx` converts a ratio to the 0..1 prop. If the real maximum differs, 3× and 5× land at the wrong ratio; fix that one constant.
+- To get true lens choice (0.6× and real 3×/5×) VisionCamera is needed (see step 3).
+
+### Step 3: live preview (decision: keep expo-camera, improve the overlay)
+| | expo-camera + overlay | VisionCamera + Skia shader |
+|---|---|---|
+| New dependencies | none | react-native-vision-camera, @shopify/react-native-skia, a worklets setup |
+| Needs dev build | already planned | yes, and Expo Go stops working |
+| Preview matches final photo | approximately (tint, faded blacks, vignette) | closely (tone curve, matrix, grain) |
+| Lens choice | zoom only (see step 2) | proper physical-lens selection |
+| Risk without a device | low | high: replaces the camera component, and capture, flash and permissions all change |
+
+I chose expo-camera because the shader route cannot be tested here and would rewrite the camera screen blind. New `components/LivePreviewOverlay.tsx` draws the recipe's colour cast (`previewTint`), a faded-blacks veil scaled by `look.fade`, and a four-edge vignette scaled by `look.vignette`. It cannot show the tone curve, colour matrix, saturation or grain; those still appear only after capture. **The "live view shows the real recipe" goal is therefore not met yet.** Do the VisionCamera + Skia port as its own task after the step 1 device run, porting `lib/film-grade.ts` (tone LUT, matrix, saturation, split tone, grain, vignette) to a shader.
+
+### Step 4: capture
+- `takePictureAsync` returns the sensor's 4:3 picture; its exact size on the S24 Ultra is unverified. `renderFilmLook` still limits the long edge to 2560 px (about 5 MP), because `jpeg-js` grades pixels in plain JavaScript. **Full resolution was not changed**: raising the cap risks running out of memory and long waits, and cannot be tested here. Moving the grade off the JS thread needs a native or worklet-based pipeline and belongs with the step 3 shader work.
+- Provable fixes in `lib/film-look.ts`: the temp JPEG written by `manipulateAsync` is now deleted (it leaked into the cache on every shot), the base64 string is released before grading, and the encoded bytes are no longer copied before base64 encoding. The exports are unchanged.
+
+### Step 5: share, multi-select, album
+- New `lib/photo-export.ts`: `savePhotosToAlbum` (expo-media-library 57 object API: `Album.get`, `Asset.create(uri, album)`, `Album.create`) saves into an album named **Fuji Recipe**; `sharePhoto` uses the share sheet. The camera review's Save to phone now uses it too.
+- Gallery: Select button or long-press a tile starts selection; bottom bar has Share (exactly one photo, because expo-sharing shares one file at a time), Save (any number, to the album) and Remove (any number). The viewer has a share button and Save to phone goes to the album.
+- New dependency, approved in the brief: `expo-sharing ~57.0.23` (installed with pnpm because `expo install` could not reach its API from this environment).
+
+### Step 6: performance
+- New `lib/photo-store.ts`: a 480 px thumbnail is made after each capture and stored in `film-photos/thumbs/`. `SavedPhoto` gained an optional `thumbUri` (storage keys unchanged; old photos without one fall back to the full image). Removing a photo deletes both files. `AppState` gained `removePhotos(ids)`.
+- Grid cells are a memoised `PhotoTile`, the FlatList has tuned `initialNumToRender`, `windowSize` and `removeClippedSubviews`, and the separator is stable. [unverified on device: scroll smoothness at 120 Hz, capture latency]
+
+### Step 7: cleanup
+Removed with `git rm`: `.replit`, `.replitignore`, `replit.md`, `artifacts/fuji-recipe-camera/.replit-artifact/`, `scripts/build.js`, `server/` (serve.js and the landing page). Also removed the app's `build` and `serve` scripts, the `create-launch` devDependency, and the root `@replit/connectors-sdk` dependency, and refreshed the lockfile. See Known issues for what still mentions Replit.
+
+### Extra device checks (add to the checklist above) [all unverified until run]
+12. **Lens and zoom:** tap 1×, 3 and 5. The preview should glide, the selected pill highlights, and on the front camera the pills are greyed out. Note the real zoom ratio you see at 3 and 5 and whether the lens switches; adjust `ASSUMED_MAX_ZOOM_RATIO` if not.
+13. **Live preview:** switch recipes and check the tint, faded look and darker corners change. Compare with the developed photo: expect the photo to look stronger.
+14. **Full-res capture:** note the photo size shown in the review caption (expected about 2560 px long edge). Take 10 shots in a row and watch for slowdowns or crashes.
+15. **Share:** open a photo and tap share; the system share sheet should show the photo. In select mode, Share is only enabled with exactly one photo selected.
+16. **Multi-select:** long-press a tile, select several, tap Save, and check a "Fuji Recipe" album appears in the phone gallery with all of them. Then select several and Remove; the files and thumbnails are gone.
+17. **Thumbnails:** take a photo and open the Gallery; the grid should load quickly. Older photos should still show.
