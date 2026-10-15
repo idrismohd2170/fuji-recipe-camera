@@ -21,6 +21,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '@/components/Glass';
+import { LivePreviewOverlay } from '@/components/LivePreviewOverlay';
 import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
 import { useSingleFire } from '@/hooks/useSingleFire';
@@ -30,15 +31,29 @@ import { useAppState, type SavedPhoto } from '@/context/AppState';
 import { renderFilmLook } from '@/lib/film-look';
 
 /**
- * Lens pills. Only the main camera is wired up right now; the others are shown so the
- * layout is final, and are disabled until lens switching is built (see NOTES.md).
+ * Lens pills. expo-camera on Android (CameraX) cannot choose a physical lens: `selectedLens`
+ * is iOS-only, and its `zoom` prop maps 0..1 to a zoom ratio of 1..maxZoomRatio (it clamps
+ * below 1×, so the 0.6× ultrawide is unreachable). The pills therefore set a zoom ratio on
+ * the logical back camera and rely on the phone to switch lenses as the ratio changes.
+ * See NOTES.md, "Session 4".
  */
 const LENSES = [
-  { label: '0.6', enabled: false },
-  { label: '1×', enabled: true },
-  { label: '3', enabled: false },
-  { label: '5', enabled: false },
+  { label: '0.6', ratio: 0.6, enabled: false },
+  { label: '1×', ratio: 1, enabled: true },
+  { label: '3', ratio: 3, enabled: true },
+  { label: '5', ratio: 5, enabled: true },
 ] as const;
+
+/**
+ * expo-camera does not report the camera's maximum zoom ratio to JS, so converting a ratio
+ * to the 0..1 `zoom` prop needs an assumed maximum. [unverified on the S24 Ultra: if the real
+ * maximum differs, 3× and 5× land at a different ratio; change this one number.]
+ */
+const ASSUMED_MAX_ZOOM_RATIO = 10;
+const ZOOM_STEPS = 8;
+const ZOOM_STEP_MS = 28;
+
+const zoomForRatio = (ratio: number) => Math.min(1, Math.max(0, ratio / ASSUMED_MAX_ZOOM_RATIO));
 
 function PermissionPanel({
   title,
@@ -104,6 +119,40 @@ export default function CameraScreen() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [isFocused, setIsFocused] = useState(true);
   const { width: screenWidth } = useWindowDimensions();
+  const [lensRatio, setLensRatio] = useState(1);
+  const [zoom, setZoom] = useState(zoomForRatio(1));
+  const zoomRef = useRef(zoomForRatio(1));
+  const zoomTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopZoomAnimation = useCallback(() => {
+    if (zoomTimer.current) {
+      clearInterval(zoomTimer.current);
+      zoomTimer.current = null;
+    }
+  }, []);
+
+  // Glide to the chosen zoom in a few small steps instead of jumping.
+  const selectLens = useCallback(
+    (ratio: number) => {
+      setLensRatio(ratio);
+      stopZoomAnimation();
+      const from = zoomRef.current;
+      const to = zoomForRatio(ratio);
+      let step = 0;
+      zoomTimer.current = setInterval(() => {
+        step += 1;
+        const t = step / ZOOM_STEPS;
+        const eased = 1 - (1 - t) * (1 - t);
+        const value = step >= ZOOM_STEPS ? to : from + (to - from) * eased;
+        zoomRef.current = value;
+        setZoom(value);
+        if (step >= ZOOM_STEPS) stopZoomAnimation();
+      }, ZOOM_STEP_MS);
+    },
+    [stopZoomAnimation],
+  );
+
+  useEffect(() => stopZoomAnimation, [stopZoomAnimation]);
 
   // Keep the selected recipe chip in view. Without this, choosing a recipe that sits
   // off-screen (for example from the detail screen) leaves no visible selection.
@@ -296,16 +345,14 @@ export default function CameraScreen() {
             ref={cameraRef}
             facing={facing}
             flash={flash}
+            zoom={facing === 'back' ? zoom : 0}
             ratio="4:3"
             style={StyleSheet.absoluteFill}
             onCameraReady={() => setIsReady(true)}
             onMountError={(event) => Alert.alert('Camera unavailable', event.message)}
           />
         )}
-        <View
-          pointerEvents="none"
-          style={[StyleSheet.absoluteFill, { backgroundColor: activeRecipe.look.previewTint }]}
-        />
+        <LivePreviewOverlay look={activeRecipe.look} />
         {showGrid && (
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <View style={[styles.gridLine, styles.gridV, { left: '33.33%' }]} />
@@ -319,28 +366,40 @@ export default function CameraScreen() {
         <View pointerEvents="box-none" style={styles.lensWrap}>
           <Glass forceDark radius={24} style={styles.lensBar}>
             <View style={styles.lensRow}>
-              {LENSES.map((lens) => (
-                <PressableScale
-                  key={lens.label}
-                  disabled={!lens.enabled}
-                  accessibilityLabel={`${lens.label} lens${lens.enabled ? '' : ', not available yet'}`}
-                  accessibilityState={{ disabled: !lens.enabled, selected: lens.enabled }}
-                  haptic={false}
-                  style={[
-                    styles.lensPill,
-                    lens.enabled && { backgroundColor: 'rgba(255,255,255,0.22)' },
-                  ]}
-                >
-                  <Text
+              {LENSES.map((lens) => {
+                const usable = lens.enabled && facing === 'back';
+                const selected = usable && lens.ratio === lensRatio;
+                return (
+                  <PressableScale
+                    key={lens.label}
+                    testID={`lens-${lens.label}`}
+                    disabled={!usable}
+                    onPress={() => selectLens(lens.ratio)}
+                    accessibilityLabel={`${lens.label} zoom${usable ? '' : ', not available'}`}
+                    accessibilityState={{ disabled: !usable, selected }}
+                    haptic={Haptics.ImpactFeedbackStyle.Light}
                     style={[
-                      styles.lensText,
-                      { color: lens.enabled ? colors.primary : 'rgba(255,255,255,0.38)' },
+                      styles.lensPill,
+                      selected && { backgroundColor: 'rgba(255,255,255,0.22)' },
                     ]}
                   >
-                    {lens.label}
-                  </Text>
-                </PressableScale>
-              ))}
+                    <Text
+                      style={[
+                        styles.lensText,
+                        {
+                          color: selected
+                            ? colors.primary
+                            : usable
+                              ? '#fff'
+                              : 'rgba(255,255,255,0.38)',
+                        },
+                      ]}
+                    >
+                      {lens.label}
+                    </Text>
+                  </PressableScale>
+                );
+              })}
             </View>
           </Glass>
         </View>
@@ -494,7 +553,7 @@ export default function CameraScreen() {
         <Text style={styles.hint}>
           {progress
             ? `${progress.label}…  ${progress.percent}%`
-            : 'Live view shows a tint · full recipe applied on capture'}
+            : 'Live view approximates the look · full recipe applied on capture'}
         </Text>
       </View>
 
