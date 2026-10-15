@@ -157,3 +157,8 @@ Removed with `git rm`: `.replit`, `.replitignore`, `replit.md`, `artifacts/fuji-
 15. **Share:** open a photo and tap share; the system share sheet should show the photo. In select mode, Share is only enabled with exactly one photo selected.
 16. **Multi-select:** long-press a tile, select several, tap Save, and check a "Fuji Recipe" album appears in the phone gallery with all of them. Then select several and Remove; the files and thumbnails are gone.
 17. **Thumbnails:** take a photo and open the Gallery; the grid should load quickly. Older photos should still show.
+
+### Session 4 follow-up: first device run, capture crash fixed
+- **Bug (seen on the S24 Ultra):** every capture ended with "Could not finish this shot: Property 'Buffer' doesn't exist". Cause: `jpeg-js`'s encoder calls `Buffer.from(...)` and Hermes has no global `Buffer`. The decoder was fine (`useTArray: true`). This crash was present since session 1; it was never hit because nothing had run on a device.
+- **Fix:** `encodeJpeg()` in `lib/film-look.ts` provides a minimal `Buffer` (`from`, `alloc`) only for the duration of the synchronous encode, then removes it, so no other library sees a fake global. No new dependency.
+- Checks: typecheck 0 errors, `npx expo export --platform android` bundles. [unverified on device until the next capture: re-test a shot, then the review screen, Gallery, thumbnail and Save to phone.]

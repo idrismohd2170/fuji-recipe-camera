@@ -17,6 +17,31 @@ export type RenderProgress = (label: string, fraction: number) => void;
 
 const nextTick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/**
+ * jpeg-js's encoder ends with `Buffer.from(bytes)`, and React Native's Hermes engine has no
+ * global `Buffer` ("Property 'Buffer' doesn't exist"). The decoder is fine because we pass
+ * `useTArray`. The shim exists only while the synchronous encode runs, so no other library
+ * ever sees a fake global Buffer.
+ */
+function encodeJpeg(
+  image: { data: Uint8Array; width: number; height: number },
+  quality: number,
+): Uint8Array {
+  const scope = globalThis as unknown as { Buffer?: unknown };
+  const hadBuffer = typeof scope.Buffer !== 'undefined';
+  if (!hadBuffer) {
+    scope.Buffer = {
+      from: (bytes: ArrayLike<number>) => Uint8Array.from(bytes),
+      alloc: (size: number) => new Uint8Array(size),
+    };
+  }
+  try {
+    return new Uint8Array(jpeg.encode(image, quality).data);
+  } finally {
+    if (!hadBuffer) delete scope.Buffer;
+  }
+}
+
 function decodePrepared(base64: string) {
   return jpeg.decode(toByteArray(base64), {
     useTArray: true,
@@ -66,14 +91,13 @@ export async function renderFilmLook(
 
   onProgress?.('Saving photo', 0.82);
   await nextTick();
-  const encoded = jpeg.encode(
+  const encoded = encodeJpeg(
     { data: decoded.data, width: decoded.width, height: decoded.height },
     OUTPUT_QUALITY,
   );
   onProgress?.('Saving photo', 1);
   return {
-    // encoded.data is already a Uint8Array (Buffer); no extra copy needed.
-    base64: fromByteArray(encoded.data),
+    base64: fromByteArray(encoded),
     width: decoded.width,
     height: decoded.height,
   };
