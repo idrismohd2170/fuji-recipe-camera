@@ -9,7 +9,7 @@
 - [x] 1. Roadmap checklist in NOTES.md (this list)
 - [x] 2. Liquid glass, core: upgrade `components/Glass.tsx` (real blur if expo-blur supports it on Android, specular top edge, inner glow, gradient hairline, soft shadow)
 - [x] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
-- [ ] 4. Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
+- [ ] 4. **BLOCKED, waiting for the owner's OK on extra packages (see Step 4 log).** Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
 - [ ] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels`
 - [ ] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback)
 - [ ] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; remove `ASSUMED_MAX_ZOOM_RATIO`
@@ -192,3 +192,12 @@ Removed with `git rm`: `.replit`, `.replitignore`, `replit.md`, `artifacts/fuji-
 - Real blur is wired in the **gallery only**: `GlassScope` > `GlassBackdrop` (the photo grid) with the selection bar as a sibling. The viewer Modal is wrapped in `GlassNoBlur` (a Modal is a separate window). The tab bar and camera screen keep the tinted fill: expo-router renders the tab bar outside the scene, and the camera preview is a native surface that cannot be blurred.
 - Checks: typecheck 0 errors, Android export bundles. [unverified on device: real blur in the gallery selection bar (set `REAL_BLUR = false` in `Glass.tsx` if it looks wrong), press-lift look, per-side border colours]
 - TODO (optional, later): real blur on the tab bar would need a custom wrapper around the tab scenes.
+
+### Step 4 (native camera groundwork): BLOCKED on a dependency decision, nothing installed yet
+Findings from the package source and npm metadata (checked 2026-10-16):
+- `react-native-vision-camera` is **5.2.3**, a Nitro-based rewrite with a new API (`useCameraDevice`, `usePreviewOutput`, `usePhotoOutput`, `useFrameOutput`, `Camera`), not the 4.x API most online examples use. It has **no Expo config plugin**: permissions go in `app.json` (`android.permission.CAMERA` is already there) and native code is autolinked. Required peers: `react-native-nitro-modules` and `react-native-nitro-image` (pre-approved as required peers).
+- Frame processing is **not in core**. `useFrameOutput` needs `react-native-vision-camera-worklets` (peers: nitro-modules, vision-camera, `react-native-worklets`; worklets 0.10.1 is already installed). Drawing frames with Skia needs `react-native-vision-camera-skia` (peers: vision-camera, vision-camera-worklets, `@shopify/react-native-skia` 2.14.0, worklets, reanimated 4.5.1; both already installed).
+- So steps 5 to 8 need these packages on top of the brief's list: **react-native-vision-camera-worklets** and **react-native-vision-camera-skia**. The brief says to stop and ask before adding anything not named, so none of them were installed.
+- Verification available: `gh run list --repo idrismohd2170/fuji-recipe-camera` works from the cloud session, so each push's APK workflow result (native compile included) can be checked even though nothing can be run on the phone. A successful build takes about 8 to 12 minutes; a newer push cancels the build in progress.
+- Risk to weigh: steps 6 to 8 replace the camera screen and capture path with a brand-new API, written without a device. The expo-camera path stays behind `USE_VISION_CAMERA` as the fallback.
+- Packages that would be added if approved: react-native-vision-camera, react-native-vision-camera-worklets, react-native-vision-camera-skia, react-native-nitro-modules, react-native-nitro-image, @shopify/react-native-skia (all pinned to the versions above).
