@@ -7,7 +7,7 @@
 **Heads up:** `.github/workflows/android-apk.yml` builds an APK on every push to `main` (a newer push cancels the build in progress). Do not edit the workflow without asking the owner. Native-module changes (steps 4+) must prebuild cleanly or the APK build fails.
 
 - [x] 1. Roadmap checklist in NOTES.md (this list)
-- [ ] 2. Liquid glass, core: upgrade `components/Glass.tsx` (real blur if expo-blur supports it on Android, specular top edge, inner glow, gradient hairline, soft shadow)
+- [x] 2. Liquid glass, core: upgrade `components/Glass.tsx` (real blur if expo-blur supports it on Android, specular top edge, inner glow, gradient hairline, soft shadow)
 - [ ] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
 - [ ] 4. Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
 - [ ] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels`
@@ -179,3 +179,9 @@ Removed with `git rm`: `.replit`, `.replitignore`, `replit.md`, `artifacts/fuji-
 - **Bug (seen on the S24 Ultra):** every capture ended with "Could not finish this shot: Property 'Buffer' doesn't exist". Cause: `jpeg-js`'s encoder calls `Buffer.from(...)` and Hermes has no global `Buffer`. The decoder was fine (`useTArray: true`). This crash was present since session 1; it was never hit because nothing had run on a device.
 - **Fix:** `encodeJpeg()` in `lib/film-look.ts` provides a minimal `Buffer` (`from`, `alloc`) only for the duration of the synchronous encode, then removes it, so no other library sees a fake global. No new dependency.
 - Checks: typecheck 0 errors, `npx expo export --platform android` bundles. [unverified on device until the next capture: re-test a shot, then the review screen, Gallery, thumbnail and Save to phone.]
+
+### Step 2 (liquid glass, core): done
+- `components/Glass.tsx` rebuilt: blur, tinted body, specular sheen from the top edge, faint inner glow from the bottom, a thin top rim-light line, a bevelled hairline (brighter on top, dimmer on the bottom) and a soft depth shadow (`depth` prop, default on). Props `forceDark`, `radius`, `intensity`, `style` unchanged.
+- Real Android blur is opt-in: `GlassScope` + `GlassBackdrop` (new exports) wrap the content to blur, with `Glass` panels as siblings (BlurView must not be inside the target). Without a scope, or over the camera preview (a native surface that cannot be captured), Glass uses the tinted fill. `REAL_BLUR` at the top of the file turns real blur off everywhere if it misbehaves.
+- Nothing uses `GlassScope` yet; step 3 wires it into the gallery (and tab bar if the layout allows).
+- Checks: typecheck 0 errors, Android export bundles. [unverified on device: how it looks, shadow under translucent fill on Android, per-side border colours on rounded corners]
