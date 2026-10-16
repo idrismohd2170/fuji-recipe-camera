@@ -359,6 +359,7 @@ export default function CameraScreen() {
                     accessibilityLabel={`${lens.label} zoom${usable ? '' : ', not available'}`}
                     accessibilityState={{ disabled: !usable, selected }}
                     haptic={Haptics.ImpactFeedbackStyle.Light}
+                    lift={0.14}
                     style={[
                       styles.lensPill,
                       selected && { backgroundColor: 'rgba(255,255,255,0.22)' },

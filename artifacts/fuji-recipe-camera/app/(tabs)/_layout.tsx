@@ -49,6 +49,7 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
                 accessibilityLabel={label}
                 haptic={Haptics.ImpactFeedbackStyle.Light}
                 pressedScale={0.92}
+                lift={0.1}
                 onPress={() => {
                   const event = navigation.emit({
                     type: 'tabPress',

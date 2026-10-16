@@ -8,7 +8,7 @@
 
 - [x] 1. Roadmap checklist in NOTES.md (this list)
 - [x] 2. Liquid glass, core: upgrade `components/Glass.tsx` (real blur if expo-blur supports it on Android, specular top edge, inner glow, gradient hairline, soft shadow)
-- [ ] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
+- [x] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
 - [ ] 4. Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
 - [ ] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels`
 - [ ] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback)
@@ -185,3 +185,10 @@ Removed with `git rm`: `.replit`, `.replitignore`, `replit.md`, `artifacts/fuji-
 - Real Android blur is opt-in: `GlassScope` + `GlassBackdrop` (new exports) wrap the content to blur, with `Glass` panels as siblings (BlurView must not be inside the target). Without a scope, or over the camera preview (a native surface that cannot be captured), Glass uses the tinted fill. `REAL_BLUR` at the top of the file turns real blur off everywhere if it misbehaves.
 - Nothing uses `GlassScope` yet; step 3 wires it into the gallery (and tab bar if the layout allows).
 - Checks: typecheck 0 errors, Android export bundles. [unverified on device: how it looks, shadow under translucent fill on Android, per-side border colours on rounded corners]
+
+### Step 3 (liquid glass, motion and reach): done
+- `PressableScale` now exposes a `PressContext` (0..1 press amount, UI thread) and a `lift` prop (peak white overlay opacity, follows the style's borderRadius). Any `Glass` inside a `PressableScale` brightens by up to 16% while pressed, automatically; non-glass pills use `lift` (lens pills, tab bar items, gallery selection actions).
+- Glass is used consistently: tab bar, camera top bar and buttons, lens bar, review and viewer panels, gallery selection bar. All tap targets were already >= 48 px and were left unchanged.
+- Real blur is wired in the **gallery only**: `GlassScope` > `GlassBackdrop` (the photo grid) with the selection bar as a sibling. The viewer Modal is wrapped in `GlassNoBlur` (a Modal is a separate window). The tab bar and camera screen keep the tinted fill: expo-router renders the tab bar outside the scene, and the camera preview is a native surface that cannot be blurred.
+- Checks: typecheck 0 errors, Android export bundles. [unverified on device: real blur in the gallery selection bar (set `REAL_BLUR = false` in `Glass.tsx` if it looks wrong), press-lift look, per-side border colours]
+- TODO (optional, later): real blur on the tab bar would need a custom wrapper around the tab scenes.

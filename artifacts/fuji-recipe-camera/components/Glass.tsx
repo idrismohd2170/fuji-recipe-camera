@@ -2,6 +2,8 @@ import React, { createContext, useContext, useRef, type RefObject } from 'react'
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { PressContext } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
 
 /**
@@ -29,6 +31,14 @@ const BlurTargetContext = createContext<BlurTargetRef | null>(null);
 export function GlassScope({ children }: { children: React.ReactNode }) {
   const ref = useRef<View | null>(null);
   return <BlurTargetContext.Provider value={ref}>{children}</BlurTargetContext.Provider>;
+}
+
+/**
+ * Wrap the contents of a Modal in this. A Modal is a separate native window, so a blur
+ * target outside it cannot be used from inside; its Glass panels use the tinted fill.
+ */
+export function GlassNoBlur({ children }: { children: React.ReactNode }) {
+  return <BlurTargetContext.Provider value={null}>{children}</BlurTargetContext.Provider>;
 }
 
 export function GlassBackdrop({
@@ -79,6 +89,9 @@ export function Glass({
 }: Props) {
   const colors = useColors();
   const blurTarget = useContext(BlurTargetContext);
+  const pressed = useContext(PressContext);
+  // Brightens while the PressableScale around this glass is pressed.
+  const liftStyle = useAnimatedStyle(() => ({ opacity: (pressed?.value ?? 0) * 0.16 }));
   const dark = forceDark || colors.blurTint === 'dark';
   const realBlur = Platform.OS === 'android' && REAL_BLUR && !!blurTarget;
 
@@ -151,6 +164,12 @@ export function Glass({
           },
         ]}
       />
+      {pressed && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, styles.lift, liftStyle]}
+        />
+      )}
       {children}
     </View>
   );
@@ -170,5 +189,6 @@ const styles = StyleSheet.create({
   sheen: { position: 'absolute', top: 0, left: 0, right: 0, height: '55%' },
   glow: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' },
   rim: { position: 'absolute', top: 0, height: 1 },
+  lift: { backgroundColor: '#fff' },
   edge: { borderWidth: StyleSheet.hairlineWidth * 1.5 },
 });

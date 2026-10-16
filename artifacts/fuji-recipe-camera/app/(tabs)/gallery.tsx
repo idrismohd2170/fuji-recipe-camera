@@ -15,7 +15,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Glass } from '@/components/Glass';
+import { Glass, GlassBackdrop, GlassNoBlur, GlassScope } from '@/components/Glass';
 import { PressableScale } from '@/components/PressableScale';
 import { useColors } from '@/hooks/useColors';
 import { getRecipe } from '@/constants/recipes';
@@ -245,175 +245,185 @@ export default function GalleryScreen() {
   const hasSelection = liveSelectedIds.length > 0;
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <FlatList
-        data={photos}
-        extraData={selectedSet}
-        keyExtractor={(photo) => photo.id}
-        numColumns={COLUMNS}
-        columnWrapperStyle={{ gap: GAP }}
-        ItemSeparatorComponent={separator}
-        ListHeaderComponent={header}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={18}
-        maxToRenderPerBatch={12}
-        windowSize={7}
-        removeClippedSubviews
-        contentContainerStyle={{
-          paddingTop: insets.top + 14,
-          paddingBottom:
-            insets.bottom + TAB_BAR_CLEARANCE + (selecting ? SELECTION_BAR_CLEARANCE : 0),
-          flexGrow: 1,
-        }}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.card }]}>
-              <Feather name="image" size={30} color={colors.primary} />
-            </View>
-            <Text style={[type.title3, { color: colors.foreground, marginTop: 18 }]}>
-              No photos yet
-            </Text>
-            <Text style={[type.callout, styles.emptyCopy, { color: colors.mutedForeground }]}>
-              Shoot with a film recipe and your frames will show up here.
-            </Text>
-            <PressableScale
-              testID="open-camera-from-gallery"
-              onPress={() => router.navigate('/camera')}
-              style={[styles.emptyButton, { backgroundColor: colors.primary }]}
-            >
-              <Feather name="camera" size={18} color={colors.primaryForeground} />
-              <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>
-                Open camera
-              </Text>
-            </PressableScale>
-          </View>
-        }
-        renderItem={renderItem}
-      />
-
-      {selecting && (
-        <Glass
-          radius={32}
-          style={[styles.selectionBar, { bottom: insets.bottom + TAB_BAR_CLEARANCE - 8 }]}
-        >
-          <View style={styles.selectionRow}>
-            <PressableScale
-              testID="selection-share"
-              accessibilityLabel="Share selected photo"
-              disabled={liveSelectedIds.length !== 1}
-              onPress={() => {
-                const only = selectedPhotos[0];
-                if (only) void sharePhoto(only.uri);
-              }}
-              style={[styles.selectionAction, liveSelectedIds.length !== 1 && styles.dimmed]}
-            >
-              <Feather name="share" size={19} color={colors.foreground} />
-              <Text style={[styles.selectionText, { color: colors.foreground }]}>Share</Text>
-            </PressableScale>
-            <PressableScale
-              testID="selection-save"
-              accessibilityLabel={`Save selected photos to the ${ALBUM_NAME} album`}
-              disabled={!hasSelection || saving}
-              onPress={() => void saveToAlbum(selectedPhotos, endSelecting)}
-              style={[styles.selectionAction, (!hasSelection || saving) && styles.dimmed]}
-            >
-              <Feather name="download" size={19} color={colors.foreground} />
-              <Text style={[styles.selectionText, { color: colors.foreground }]}>Save</Text>
-            </PressableScale>
-            <PressableScale
-              testID="selection-remove"
-              accessibilityLabel="Remove selected photos"
-              disabled={!hasSelection}
-              onPress={() => confirmDelete(selectedPhotos, endSelecting)}
-              style={[styles.selectionAction, !hasSelection && styles.dimmed]}
-            >
-              <Feather name="trash-2" size={19} color={colors.destructive} />
-              <Text style={[styles.selectionText, { color: colors.destructive }]}>Remove</Text>
-            </PressableScale>
-          </View>
-        </Glass>
-      )}
-
-      <Modal
-        visible={!!openPhoto}
-        animationType="fade"
-        statusBarTranslucent
-        navigationBarTranslucent
-        onRequestClose={() => setOpenPhoto(null)}
-      >
-        {openPhoto && (
-          <View style={styles.viewer}>
-            <StatusBar style="light" />
-            <Image
-              source={{ uri: openPhoto.uri }}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-            />
-            <View style={[styles.viewerTop, { paddingTop: insets.top + 8 }]}>
-              <PressableScale
-                accessibilityLabel="Close photo"
-                onPress={() => setOpenPhoto(null)}
-                style={styles.roundHit}
-              >
-                <Glass forceDark radius={22} style={styles.roundGlass}>
-                  <Feather name="x" size={20} color="#fff" />
-                </Glass>
-              </PressableScale>
-              <Glass forceDark radius={16} style={styles.recipePill}>
-                <Text style={styles.recipePillText}>{getRecipe(openPhoto.recipeId).name}</Text>
-              </Glass>
-              <PressableScale
-                testID="share-gallery-photo"
-                accessibilityLabel="Share photo"
-                onPress={() => void sharePhoto(openPhoto.uri)}
-                style={styles.roundHit}
-              >
-                <Glass forceDark radius={22} style={styles.roundGlass}>
-                  <Feather name="share" size={19} color="#fff" />
-                </Glass>
-              </PressableScale>
-            </View>
-            <Glass
-              forceDark
-              radius={32}
-              style={[styles.viewerBottom, { marginBottom: Math.max(insets.bottom, 12) + 8 }]}
-            >
-              <Text style={styles.viewerMeta}>
-                {openPhoto.width} × {openPhoto.height} ·{' '}
-                {new Date(openPhoto.createdAt).toLocaleString()}
-              </Text>
-              <View style={styles.viewerActions}>
+    <GlassScope>
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
+        <GlassBackdrop style={styles.backdrop}>
+          <FlatList
+            data={photos}
+            extraData={selectedSet}
+            keyExtractor={(photo) => photo.id}
+            numColumns={COLUMNS}
+            columnWrapperStyle={{ gap: GAP }}
+            ItemSeparatorComponent={separator}
+            ListHeaderComponent={header}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={18}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            removeClippedSubviews
+            contentContainerStyle={{
+              paddingTop: insets.top + 14,
+              paddingBottom:
+                insets.bottom + TAB_BAR_CLEARANCE + (selecting ? SELECTION_BAR_CLEARANCE : 0),
+              flexGrow: 1,
+            }}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <View style={[styles.emptyIcon, { backgroundColor: colors.card }]}>
+                  <Feather name="image" size={30} color={colors.primary} />
+                </View>
+                <Text style={[type.title3, { color: colors.foreground, marginTop: 18 }]}>
+                  No photos yet
+                </Text>
+                <Text style={[type.callout, styles.emptyCopy, { color: colors.mutedForeground }]}>
+                  Shoot with a film recipe and your frames will show up here.
+                </Text>
                 <PressableScale
-                  testID="remove-gallery-photo"
-                  haptic={Haptics.ImpactFeedbackStyle.Medium}
-                  onPress={() => confirmDelete([openPhoto], () => setOpenPhoto(null))}
-                  style={styles.removeButton}
+                  testID="open-camera-from-gallery"
+                  onPress={() => router.navigate('/camera')}
+                  style={[styles.emptyButton, { backgroundColor: colors.primary }]}
                 >
-                  <Feather name="trash-2" size={18} color={colors.destructive} />
-                  <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
-                </PressableScale>
-                <PressableScale
-                  testID="save-gallery-photo-to-phone"
-                  onPress={() => void saveToAlbum([openPhoto])}
-                  disabled={saving}
-                  style={[styles.saveButton, { backgroundColor: colors.primary }]}
-                >
-                  <Feather name="download" size={18} color={colors.primaryForeground} />
-                  <Text style={[styles.saveText, { color: colors.primaryForeground }]}>
-                    Save to phone
+                  <Feather name="camera" size={18} color={colors.primaryForeground} />
+                  <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>
+                    Open camera
                   </Text>
                 </PressableScale>
               </View>
-            </Glass>
-          </View>
+            }
+            renderItem={renderItem}
+          />
+        </GlassBackdrop>
+
+        {selecting && (
+          <Glass
+            radius={32}
+            style={[styles.selectionBar, { bottom: insets.bottom + TAB_BAR_CLEARANCE - 8 }]}
+          >
+            <View style={styles.selectionRow}>
+              <PressableScale
+                testID="selection-share"
+                accessibilityLabel="Share selected photo"
+                disabled={liveSelectedIds.length !== 1}
+                onPress={() => {
+                  const only = selectedPhotos[0];
+                  if (only) void sharePhoto(only.uri);
+                }}
+                lift={0.12}
+                style={[styles.selectionAction, liveSelectedIds.length !== 1 && styles.dimmed]}
+              >
+                <Feather name="share" size={19} color={colors.foreground} />
+                <Text style={[styles.selectionText, { color: colors.foreground }]}>Share</Text>
+              </PressableScale>
+              <PressableScale
+                testID="selection-save"
+                accessibilityLabel={`Save selected photos to the ${ALBUM_NAME} album`}
+                disabled={!hasSelection || saving}
+                onPress={() => void saveToAlbum(selectedPhotos, endSelecting)}
+                lift={0.12}
+                style={[styles.selectionAction, (!hasSelection || saving) && styles.dimmed]}
+              >
+                <Feather name="download" size={19} color={colors.foreground} />
+                <Text style={[styles.selectionText, { color: colors.foreground }]}>Save</Text>
+              </PressableScale>
+              <PressableScale
+                testID="selection-remove"
+                accessibilityLabel="Remove selected photos"
+                disabled={!hasSelection}
+                onPress={() => confirmDelete(selectedPhotos, endSelecting)}
+                lift={0.12}
+                style={[styles.selectionAction, !hasSelection && styles.dimmed]}
+              >
+                <Feather name="trash-2" size={19} color={colors.destructive} />
+                <Text style={[styles.selectionText, { color: colors.destructive }]}>Remove</Text>
+              </PressableScale>
+            </View>
+          </Glass>
         )}
-      </Modal>
-    </View>
+
+        <Modal
+          visible={!!openPhoto}
+          animationType="fade"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={() => setOpenPhoto(null)}
+        >
+          {openPhoto && (
+            <GlassNoBlur>
+              <View style={styles.viewer}>
+                <StatusBar style="light" />
+                <Image
+                  source={{ uri: openPhoto.uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="contain"
+                />
+                <View style={[styles.viewerTop, { paddingTop: insets.top + 8 }]}>
+                  <PressableScale
+                    accessibilityLabel="Close photo"
+                    onPress={() => setOpenPhoto(null)}
+                    style={styles.roundHit}
+                  >
+                    <Glass forceDark radius={22} style={styles.roundGlass}>
+                      <Feather name="x" size={20} color="#fff" />
+                    </Glass>
+                  </PressableScale>
+                  <Glass forceDark radius={16} style={styles.recipePill}>
+                    <Text style={styles.recipePillText}>{getRecipe(openPhoto.recipeId).name}</Text>
+                  </Glass>
+                  <PressableScale
+                    testID="share-gallery-photo"
+                    accessibilityLabel="Share photo"
+                    onPress={() => void sharePhoto(openPhoto.uri)}
+                    style={styles.roundHit}
+                  >
+                    <Glass forceDark radius={22} style={styles.roundGlass}>
+                      <Feather name="share" size={19} color="#fff" />
+                    </Glass>
+                  </PressableScale>
+                </View>
+                <Glass
+                  forceDark
+                  radius={32}
+                  style={[styles.viewerBottom, { marginBottom: Math.max(insets.bottom, 12) + 8 }]}
+                >
+                  <Text style={styles.viewerMeta}>
+                    {openPhoto.width} × {openPhoto.height} ·{' '}
+                    {new Date(openPhoto.createdAt).toLocaleString()}
+                  </Text>
+                  <View style={styles.viewerActions}>
+                    <PressableScale
+                      testID="remove-gallery-photo"
+                      haptic={Haptics.ImpactFeedbackStyle.Medium}
+                      onPress={() => confirmDelete([openPhoto], () => setOpenPhoto(null))}
+                      style={styles.removeButton}
+                    >
+                      <Feather name="trash-2" size={18} color={colors.destructive} />
+                      <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
+                    </PressableScale>
+                    <PressableScale
+                      testID="save-gallery-photo-to-phone"
+                      onPress={() => void saveToAlbum([openPhoto])}
+                      disabled={saving}
+                      style={[styles.saveButton, { backgroundColor: colors.primary }]}
+                    >
+                      <Feather name="download" size={18} color={colors.primaryForeground} />
+                      <Text style={[styles.saveText, { color: colors.primaryForeground }]}>
+                        Save to phone
+                      </Text>
+                    </PressableScale>
+                  </View>
+                </Glass>
+              </View>
+            </GlassNoBlur>
+          )}
+        </Modal>
+      </View>
+    </GlassScope>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  backdrop: { flex: 1 },
   header: {
     paddingHorizontal: 20,
     marginBottom: 18,
