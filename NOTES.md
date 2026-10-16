@@ -1,5 +1,22 @@
 # NOTES: handoff file for the next Claude session
 
+## Roadmap (live checklist, update after every step)
+
+**How to resume:** read this list, do the first unchecked step, then commit and push before starting the next one (small steps, so a usage cutoff loses at most one). After each step: check its box, add a short "Step N" entry in the log at the bottom (what changed, files, what is unverified on device), add any new TODOs here. Verify with `pnpm --filter @workspace/fuji-recipe-camera run typecheck` and `npx expo export --platform android` (from `artifacts/fuji-recipe-camera`). Nothing can be run on a device from the cloud session, so never mark anything verified on device; the owner tests on the S24 Ultra.
+
+**Heads up:** `.github/workflows/android-apk.yml` builds an APK on every push to `main` (a newer push cancels the build in progress). Do not edit the workflow without asking the owner. Native-module changes (steps 4+) must prebuild cleanly or the APK build fails.
+
+- [x] 1. Roadmap checklist in NOTES.md (this list)
+- [ ] 2. Liquid glass, core: upgrade `components/Glass.tsx` (real blur if expo-blur supports it on Android, specular top edge, inner glow, gradient hairline, soft shadow)
+- [ ] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
+- [ ] 4. Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
+- [ ] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels`
+- [ ] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback)
+- [ ] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; remove `ASSUMED_MAX_ZOOM_RATIO`
+- [ ] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback)
+- [ ] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs
+
+
 Read this first. Update it at the end of every session. App lives in `artifacts/fuji-recipe-camera` (Expo). Ignore `artifacts/api-server`, `artifacts/mockup-sandbox` and `lib/*`; the app does not use them.
 
 ## Project goal
