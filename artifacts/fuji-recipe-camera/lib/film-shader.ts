@@ -192,15 +192,18 @@ export const FILM_UNIFORM_ORDER: readonly (keyof FilmShaderUniforms)[] = [
 ];
 
 function clamp(value: number, min: number, max: number) {
+  'worklet';
   return value < min ? min : value > max ? max : value;
 }
 
 function bump(value: number, center: number, width: number) {
+  'worklet';
   const distance = (value - center) / width;
   return Math.exp(-distance * distance);
 }
 
 function rawTone(x: number, u: Pick<FilmShaderUniforms, 'contrastAmount' | 'highlights' | 'shadows'>) {
+  'worklet';
   let y = x - (u.contrastAmount * Math.sin(2 * Math.PI * x)) / (2 * Math.PI);
   y += u.highlights * 0.12 * bump(x, 0.8, 0.22);
   y += u.shadows * 0.1 * bump(x, 0.2, 0.22);
@@ -208,7 +211,8 @@ function rawTone(x: number, u: Pick<FilmShaderUniforms, 'contrastAmount' | 'high
 }
 
 /**
- * Turns a recipe look into shader uniforms.
+ * Turns a recipe look into shader uniforms. Marked 'worklet' (with the helpers it calls and
+ * `flattenFilmShaderUniforms`) so the camera's frame callback can call it per frame size.
  * `width` / `height` are the size of the image being drawn (they set the grain
  * cell size and the vignette centre, as in `gradePixels`).
  */
@@ -218,6 +222,7 @@ export function computeFilmShaderUniforms(
   height: number,
   grainSeed = 0,
 ): FilmShaderUniforms {
+  'worklet';
   const partial = {
     contrastAmount: clamp(look.contrast - 1, -0.85, 0.85),
     highlights: look.highlights,
@@ -258,6 +263,7 @@ export function computeFilmShaderUniforms(
 
 /** Flat float array in the order `makeShaderWithChildren` expects. */
 export function flattenFilmShaderUniforms(u: FilmShaderUniforms): number[] {
+  'worklet';
   const out: number[] = [];
   for (const key of FILM_UNIFORM_ORDER) {
     const value = u[key];

@@ -11,7 +11,7 @@
 - [x] 3. Liquid glass, motion and reach: press brightness lift, apply glass consistently (tab bar, camera top bar, lens pills, selection bar, review/viewer panels), tap targets >= 48px
 - [x] 4. (owner approved the extra packages 2026-10-16; CI build result recorded in the Step 4 log) Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
 - [x] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels` (max difference 1 level; SkSL compiles and runs in CanvasKit on CPU; not yet run on the phone's GPU)
-- [ ] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback)
+- [x] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback); bundles, but never run on a device
 - [ ] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; remove `ASSUMED_MAX_ZOOM_RATIO`
 - [ ] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback)
 - [ ] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs
@@ -215,3 +215,17 @@ The APK workflow run for the Step 4 commit (`eea662c`, run 38897633649) finished
 - Deliberate sub-level differences: luminance is continuous in the shader (rounded to 0..255 in `gradePixels` before the split-tone and grain-weight lookups), and the grain tile is stored as an 8-bit texture.
 - Grain note for step 6: grain cell size and the vignette centre follow the size passed to `computeFilmShaderUniforms`, so for the live preview pass the preview's pixel size.
 - Checks: typecheck 0 errors; `pnpm exec expo export --platform android` bundles. The app does not import `film-shader.ts` yet, so the bundle is unchanged. [unverified on device: the shader on the phone's GPU (precision, texture sampling of the grain tile, speed per frame).]
+
+### Step 6 (VisionCamera screen with the live shader): done, unverified on device
+- New `components/FilmCamera.tsx`: `SkiaCamera` (react-native-vision-camera-skia) draws every frame through `FILM_SHADER_SKSL` with the active recipe's uniforms (`computeFilmShaderUniforms` is called per frame with the frame texture size, so the vignette centre and grain size match). It also owns a `usePhotoOutput()` and exposes `takePictureAsync()` returning `{ uri, width, height }`, so `takeShot` in `camera.tsx` barely changed. Photo width and height are swapped for `left`/`right` orientation because VisionCamera reports sensor dimensions and applies rotation only as an EXIF flag.
+- `app/(tabs)/camera.tsx`: `USE_VISION_CAMERA = true` at the top. The component is `require`d lazily so the expo-camera fallback never loads the native modules. `useVision` is also false if the shader fails to compile (`FILM_SHADER_READY`), which falls back to expo-camera by itself. With VisionCamera on, `LivePreviewOverlay` is not drawn (the shader already does it) and the hint text changes. Kept as they were: permission screens (still `expo-camera`'s `useCameraPermissions`, the CAMERA permission is the same system permission), flash, grid, flip, screen focus/blur mount gating, the capture and save single-fire guards, the 4:3 frame, lens pills.
+- `lib/film-shader.ts`: added `'worklet'` to `clamp`, `bump`, `rawTone`, `computeFilmShaderUniforms` and `flattenFilmShaderUniforms` so the frame callback can call them. `FilmCamera` has `'use no memo'` because the project has React Compiler on.
+- Checks: typecheck 0 errors; `expo export --platform android` bundles, and the non-bytecode bundle shows worklet metadata on the frame callback and on the shader functions. Not checked: the APK build with these imports (see the Actions run for this commit).
+- **Unverified on device (add to the device checklist in step 9):**
+  - the SkSL compiles in native Skia (it only compiled in CanvasKit here); if it does not, the screen should silently use expo-camera, check the log for the compile error
+  - preview is 4:3 and not stretched (`targetResolution` is `FHD_4_3`, the negotiated size is not reported to JS), frame rate and heat with the shader at 1440 x 1920
+  - live grade matches the developed photo (compare the preview with the review screen)
+  - capture: the saved JPEG's rotation and the review screen caption size; whether `expo-image-manipulator` honours the EXIF rotation of the VisionCamera JPEG (if photos come out sideways or stretched, rotate in `FilmCamera.takePictureAsync`); front camera photos may not be mirrored like the preview
+  - flash on capture (back camera only; front camera sends flash off), flip, the single-fire guards, leaving and returning to the Camera tab
+  - zoom: `zoom` is now a VisionCamera zoom factor (`ratio`, via the old `ASSUMED_MAX_ZOOM_RATIO` conversion) and 1 might not be the main lens on the S24 Ultra; step 7 replaces this with the device list
+  - grain is the same pattern on every frame (marked `shortcut:` in `FilmCamera.tsx`)

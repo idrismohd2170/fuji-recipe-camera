@@ -20,6 +20,7 @@ import { Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { FilmCameraHandle } from '@/components/FilmCamera';
 import { Glass } from '@/components/Glass';
 import { LivePreviewOverlay } from '@/components/LivePreviewOverlay';
 import { PressableScale } from '@/components/PressableScale';
@@ -31,6 +32,18 @@ import { useAppState, type SavedPhoto } from '@/context/AppState';
 import { renderFilmLook } from '@/lib/film-look';
 import { reportSaveResult, savePhotosToAlbum } from '@/lib/photo-export';
 import { makeThumbnail } from '@/lib/photo-store';
+
+/**
+ * Live preview through VisionCamera + the film shader (components/FilmCamera.tsx). Set to
+ * false to go back to expo-camera with the tint overlay. It also falls back by itself if the
+ * shader fails to compile. The module is required lazily so the fallback never loads the
+ * native camera modules.
+ */
+const USE_VISION_CAMERA = true;
+const Film = USE_VISION_CAMERA
+  ? (require('@/components/FilmCamera') as typeof import('@/components/FilmCamera'))
+  : null;
+const useVision = Film?.FILM_SHADER_READY === true;
 
 /**
  * Lens pills. expo-camera on Android (CameraX) cannot choose a physical lens: `selectedLens`
@@ -101,6 +114,7 @@ export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
+  const filmRef = useRef<FilmCameraHandle>(null);
   const carouselRef = useRef<ScrollView>(null);
   const chipX = useRef<Record<string, number>>({});
   const once = useSingleFire();
@@ -236,17 +250,17 @@ export default function CameraScreen() {
   };
 
   const takeShot = async () => {
-    if (!cameraRef.current || !isReady || isCapturing || captureBusy.current) return;
+    const camera = useVision ? filmRef.current : cameraRef.current;
+    if (!camera || !isReady || isCapturing || captureBusy.current) return;
     captureBusy.current = true;
     setIsCapturing(true);
     setProgress({ label: 'Capturing', percent: 0 });
     let tempUri: string | null = null;
     let handedToReview = false;
     try {
-      const source = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        exif: false,
-      });
+      const source = useVision
+        ? await filmRef.current?.takePictureAsync()
+        : await cameraRef.current?.takePictureAsync({ quality: 1, exif: false });
       if (!source?.uri) throw new Error('The camera did not return an image.');
       tempUri = source.uri;
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -321,7 +335,18 @@ export default function CameraScreen() {
           { top: previewTop, height: previewHeight },
         ]}
       >
-        {isFocused && (
+        {isFocused && Film && useVision && (
+          <Film.FilmCamera
+            ref={filmRef}
+            facing={facing}
+            flash={flash === 'on' ? 'on' : 'off'}
+            zoom={facing === 'back' ? Math.max(1, zoom * ASSUMED_MAX_ZOOM_RATIO) : 1}
+            look={activeRecipe.look}
+            onReady={() => setIsReady(true)}
+            onError={(message) => Alert.alert('Camera unavailable', message)}
+          />
+        )}
+        {isFocused && !useVision && (
           <CameraView
             ref={cameraRef}
             facing={facing}
@@ -333,7 +358,7 @@ export default function CameraScreen() {
             onMountError={(event) => Alert.alert('Camera unavailable', event.message)}
           />
         )}
-        <LivePreviewOverlay look={activeRecipe.look} />
+        {!useVision && <LivePreviewOverlay look={activeRecipe.look} />}
         {showGrid && (
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <View style={[styles.gridLine, styles.gridV, { left: '33.33%' }]} />
@@ -535,7 +560,9 @@ export default function CameraScreen() {
         <Text style={styles.hint}>
           {progress
             ? `${progress.label}…  ${progress.percent}%`
-            : 'Live view approximates the look · full recipe applied on capture'}
+            : useVision
+              ? 'Live view uses the recipe · final photo is developed on capture'
+              : 'Live view approximates the look · full recipe applied on capture'}
         </Text>
       </View>
 
