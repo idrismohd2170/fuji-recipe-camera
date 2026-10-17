@@ -60,8 +60,9 @@ const LENSES = [
 ] as const;
 
 /**
- * expo-camera does not report the camera's maximum zoom ratio to JS, so converting a ratio
- * to the 0..1 `zoom` prop needs an assumed maximum. [unverified on the S24 Ultra: if the real
+ * Only the expo-camera fallback uses this (VisionCamera takes the real ratio and reports the
+ * device's range). expo-camera does not report the camera's maximum zoom ratio to JS, so
+ * converting a ratio to the 0..1 `zoom` prop needs an assumed maximum. [unverified on the S24 Ultra: if the real
  * maximum differs, 3× and 5× land at a different ratio; change this one number.]
  */
 const ASSUMED_MAX_ZOOM_RATIO = 10;
@@ -136,6 +137,7 @@ export default function CameraScreen() {
   const [isFocused, setIsFocused] = useState(true);
   const { width: screenWidth } = useWindowDimensions();
   const [lensRatio, setLensRatio] = useState(1);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number } | null>(null);
   const [zoom, setZoom] = useState(zoomForRatio(1));
   const zoomRef = useRef(zoomForRatio(1));
   const zoomTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -151,6 +153,7 @@ export default function CameraScreen() {
   const selectLens = useCallback(
     (ratio: number) => {
       setLensRatio(ratio);
+      if (useVision) return; // FilmCamera animates its own zoom
       stopZoomAnimation();
       const from = zoomRef.current;
       const to = zoomForRatio(ratio);
@@ -340,7 +343,8 @@ export default function CameraScreen() {
             ref={filmRef}
             facing={facing}
             flash={flash === 'on' ? 'on' : 'off'}
-            zoom={facing === 'back' ? Math.max(1, zoom * ASSUMED_MAX_ZOOM_RATIO) : 1}
+            lensRatio={facing === 'back' ? lensRatio : 1}
+            onZoomRange={setZoomRange}
             look={activeRecipe.look}
             onReady={() => setIsReady(true)}
             onError={(message) => Alert.alert('Camera unavailable', message)}
@@ -373,7 +377,13 @@ export default function CameraScreen() {
           <Glass forceDark radius={24} style={styles.lensBar}>
             <View style={styles.lensRow}>
               {LENSES.map((lens) => {
-                const usable = lens.enabled && facing === 'back';
+                // With VisionCamera a pill works if the device's zoom range reaches it.
+                const reachable = useVision
+                  ? !!zoomRange &&
+                    lens.ratio >= zoomRange.min - 0.01 &&
+                    lens.ratio <= zoomRange.max + 0.01
+                  : lens.enabled;
+                const usable = reachable && facing === 'back';
                 const selected = usable && lens.ratio === lensRatio;
                 return (
                   <PressableScale

@@ -12,7 +12,7 @@
 - [x] 4. (owner approved the extra packages 2026-10-16; CI build result recorded in the Step 4 log) Native camera groundwork: react-native-vision-camera, @shopify/react-native-skia, worklets setup, config plugins and CAMERA permission in app.json; confirm the APK workflow still prebuilds
 - [x] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels` (max difference 1 level; SkSL compiles and runs in CanvasKit on CPU; not yet run on the phone's GPU)
 - [x] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback); bundles, but never run on a device
-- [ ] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; remove `ASSUMED_MAX_ZOOM_RATIO`
+- [x] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; `ASSUMED_MAX_ZOOM_RATIO` is no longer used by the VisionCamera path but stays for the expo-camera fallback (see Step 7); never run on a device
 - [ ] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback)
 - [ ] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs
 
@@ -229,3 +229,15 @@ The APK workflow run for the Step 4 commit (`eea662c`, run 38897633649) finished
   - flash on capture (back camera only; front camera sends flash off), flip, the single-fire guards, leaving and returning to the Camera tab
   - zoom: `zoom` is now a VisionCamera zoom factor (`ratio`, via the old `ASSUMED_MAX_ZOOM_RATIO` conversion) and 1 might not be the main lens on the S24 Ultra; step 7 replaces this with the device list
   - grain is the same pattern on every frame (marked `shortcut:` in `FilmCamera.tsx`)
+
+### Step 7 (real lens selection): done, unverified on device
+- What VisionCamera 5.2.3 actually offers on Android (from its Kotlin source): `cameraDevices` is CameraX's `availableCameraInfos`; the back camera is one logical multi-camera whose `physicalDevices` are read-only info (not selectable as inputs), `zoom` is a true CameraX zoom ratio (`setZoomRatio`), and **`zoomLensSwitchFactors` is hard-coded empty** (a TODO in the library). So you cannot pick a physical lens directly; the pills set the zoom ratio and the phone's camera stack switches lenses as the ratio crosses 0.6 / 1 / 3 / 5.
+- `components/FilmCamera.tsx`: picks the device with `useCameraDevice(facing, { physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'] })` (prefers the device with all three lenses), animates `zoom` with a reanimated `withTiming` shared value (250 ms) to the pill's ratio clamped to the device's `minZoom`/`maxZoom`, and reports that range to the screen from `onStarted` (new props `lensRatio`, `onZoomRange`; the old `zoom` prop is gone).
+- `app/(tabs)/camera.tsx`: with VisionCamera a pill is enabled when its ratio lies inside the reported range (so 0.6 enables only if the device reports `minZoom <= 0.6`), and still only on the back camera. A lens the phone does not expose therefore falls back to plain zoom at that ratio, or stays disabled if out of range. `selectLens` no longer runs the old JS zoom glide on this path.
+- **`ASSUMED_MAX_ZOOM_RATIO` was not removed**: the expo-camera fallback (`USE_VISION_CAMERA = false`, or a shader compile failure) still needs it. Delete it together with the fallback when you drop expo-camera.
+- Checks: typecheck 0 errors; `expo export --platform android` bundles.
+- **Unverified on device:**
+  - the S24 Ultra reports `minZoom` about 0.6 and a `maxZoom` of at least 5 for the back device; if every pill is greyed out, `minZoom`/`maxZoom` came back 0 (CameraX zoom state not ready yet when `onStarted` fires), so read the range from the controller instead
+  - the 3 and 5 pills really land on the telephoto lenses (watch for a visible lens switch and a change in field of view), and what the 0.6 pill shows
+  - the 250 ms zoom animation is smooth and survives flipping to the front camera and back
+  - the photo is taken at the selected zoom

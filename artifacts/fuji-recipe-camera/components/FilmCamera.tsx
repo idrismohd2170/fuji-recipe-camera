@@ -1,5 +1,6 @@
-import React, { useCallback, useImperativeHandle, useMemo } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
+import { useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   AlphaType,
   ColorType,
@@ -8,7 +9,11 @@ import {
   Skia,
   TileMode,
 } from '@shopify/react-native-skia';
-import { CommonResolutions, usePhotoOutput } from 'react-native-vision-camera';
+import {
+  CommonResolutions,
+  useCameraDevice,
+  usePhotoOutput,
+} from 'react-native-vision-camera';
 import { SkiaCamera, type SkiaCameraProps } from 'react-native-vision-camera-skia';
 import type { FilmLook } from '@/constants/recipes';
 import {
@@ -50,17 +55,45 @@ type Props = {
   ref?: React.Ref<FilmCameraHandle>;
   facing: 'front' | 'back';
   flash: 'off' | 'on';
-  /** Zoom factor (1 = no zoom). */
-  zoom: number;
+  /** Lens pill ratio (0.6, 1, 3, 5). Clamped to what the device reports. */
+  lensRatio: number;
+  /** Called when the camera starts, with the zoom ratios the device supports. */
+  onZoomRange: (range: { min: number; max: number }) => void;
   look: FilmLook;
   onReady: () => void;
   onError: (message: string) => void;
 };
 
-export function FilmCamera({ ref, facing, flash, zoom, look, onReady, onError }: Props) {
+export function FilmCamera({
+  ref,
+  facing,
+  flash,
+  lensRatio,
+  onZoomRange,
+  look,
+  onReady,
+  onError,
+}: Props) {
   'use no memo'; // the frame callback below is a worklet; keep it out of React Compiler
   const photoOutput = usePhotoOutput();
   const outputs = useMemo(() => [photoOutput], [photoOutput]);
+
+  // On Android the back camera is one logical multi-camera; CameraX zoom ratios are the
+  // pill numbers (0.6 ultra-wide, 1 main, 3 and 5 telephoto) and the phone switches lenses
+  // as the ratio crosses them. The filter prefers the device that has all three lenses. A
+  // lens the phone does not expose simply falls back to zoom (or the pill stays disabled
+  // if the ratio is outside the device's range).
+  const device = useCameraDevice(facing, {
+    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
+  });
+  const target =
+    device && device.maxZoom > 0
+      ? Math.min(device.maxZoom, Math.max(device.minZoom, lensRatio))
+      : 1;
+  const zoom = useSharedValue(1);
+  useEffect(() => {
+    zoom.set(withTiming(target, { duration: 250 }));
+  }, [target, zoom]);
 
   useImperativeHandle(
     ref,
@@ -119,14 +152,17 @@ export function FilmCamera({ ref, facing, flash, zoom, look, onReady, onError }:
   return (
     <SkiaCamera
       style={StyleSheet.absoluteFill}
-      device={facing}
+      device={device ?? facing}
       isActive
       zoom={zoom}
       outputs={outputs}
       // The photo output defaults to 4:3, so the preview frames are 4:3 too.
       targetResolution={CommonResolutions.FHD_4_3}
       onFrame={onFrame}
-      onStarted={onReady}
+      onStarted={() => {
+        if (device) onZoomRange({ min: device.minZoom, max: device.maxZoom });
+        onReady();
+      }}
       onError={(error) => onError(error.message)}
     />
   );
