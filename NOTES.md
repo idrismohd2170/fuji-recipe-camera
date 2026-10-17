@@ -13,7 +13,7 @@
 - [x] 5. Shader module: Skia runtime-effect port of `lib/film-grade.ts`, plus a Node script comparing a reference pixel evaluation with `gradePixels` (max difference 1 level; SkSL compiles and runs in CanvasKit on CPU; not yet run on the phone's GPU)
 - [x] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback); bundles, but never run on a device
 - [x] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; `ASSUMED_MAX_ZOOM_RATIO` is no longer used by the VisionCamera path but stays for the expo-camera fallback (see Step 7); never run on a device
-- [ ] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback)
+- [x] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback); bundles, never run on a device
 - [ ] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs
 
 
@@ -241,3 +241,15 @@ The APK workflow run for the Step 4 commit (`eea662c`, run 38897633649) finished
   - the 3 and 5 pills really land on the telephoto lenses (watch for a visible lens switch and a change in field of view), and what the 0.6 pill shows
   - the 250 ms zoom animation is smooth and survives flipping to the front camera and back
   - the photo is taken at the selected zoom
+
+### Step 8 (full-resolution capture through Skia): done, unverified on device
+- `components/FilmCamera.tsx`: `takePictureAsync()` now also runs `gradeOnGpu(photo, look)`: `photo.toImage()` (upright, mirroring applied) -> `toRawPixelData()` -> Skia image -> the same film shader on an offscreen surface (`MakeOffscreen`, CPU `Make` if no GPU surface) at the photo's full size -> JPEG at quality 92 (same as `lib/film-look.ts`) as base64. Grain seed is fresh per shot (`Date.now() & 0xffff`) like the jpeg-js path. It returns `{ uri, width, height, graded? }`; `uri` is still the untouched temp file, so the review screen's hold-to-compare keeps working.
+- `app/(tabs)/camera.tsx`: `rendered = source.graded || await renderFilmLook(...)`. Everything after it (write the file, `makeThumbnail`, `addPhoto`, the `SavedPhoto` shape, review screen) is untouched. If `gradeOnGpu` throws (unsupported pixel format, Skia setup failure, out of memory) a warning is logged and the jpeg-js path runs, capped at 2560 px as before. The expo-camera path is unchanged and still uses jpeg-js.
+- **Resolution:** the photo output uses VisionCamera's default target of 12 MP (3024 x 4032, `UHD_4_3`), about 4.5x the jpeg-js path's 5 MP cap. I did not ask for the full 50 MP sensor: that is about 200 MB of raw pixels in JS plus a large base64 string, which cannot be tested here (`shortcut:` comment in the file). TODO: after the device test, try `CommonResolutions.HIGHEST_4_3` or an explicit size and watch memory and shot time.
+- Checks: typecheck 0 errors; `expo export --platform android` bundles.
+- **Unverified on device:**
+  - `toRawPixelData()` returns RGBA/RGBX on the S24 Ultra (else the code throws and falls back; look for the "GPU grade failed" warning in the log)
+  - the offscreen surface renders and `encodeToBase64` returns a valid JPEG; shot time and memory at 12 MP; the saved photo size in the review caption should read 3024 x 4032 (or 4032 x 3024), not 2560 px
+  - the graded photo looks the same as the live preview and as the old jpeg-js result, and is upright (portrait) and not mirrored on the front camera
+  - the original shown by hold-to-compare is upright (it is the EXIF-rotated temp file; if it shows sideways, save `photo.toImage()` instead)
+  - thumbnails, Gallery, Share and Save to phone with the new photos

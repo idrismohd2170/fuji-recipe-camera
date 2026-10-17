@@ -5,6 +5,7 @@ import {
   AlphaType,
   ColorType,
   FilterMode,
+  ImageFormat,
   MipmapMode,
   Skia,
   TileMode,
@@ -13,6 +14,7 @@ import {
   CommonResolutions,
   useCameraDevice,
   usePhotoOutput,
+  type Photo,
 } from 'react-native-vision-camera';
 import { SkiaCamera, type SkiaCameraProps } from 'react-native-vision-camera-skia';
 import type { FilmLook } from '@/constants/recipes';
@@ -46,10 +48,56 @@ const paint = Skia.Paint();
 /** False if the shader did not compile; the screen then falls back to expo-camera. */
 export const FILM_SHADER_READY = effect != null && noiseImage != null;
 
-/** Same shape as the part of expo-camera's `takePictureAsync` result the screen uses. */
+/**
+ * Same shape as the part of expo-camera's `takePictureAsync` result the screen uses, plus
+ * `graded`: the finished JPEG (base64) when the GPU grade worked. Without it the screen
+ * grades `uri` with the jpeg-js path (lib/film-look.ts), as it does for expo-camera.
+ */
 export type FilmCameraHandle = {
-  takePictureAsync(): Promise<{ uri: string; width: number; height: number }>;
+  takePictureAsync(): Promise<{
+    uri: string;
+    width: number;
+    height: number;
+    graded?: { base64: string; width: number; height: number };
+  }>;
 };
+
+const OUTPUT_QUALITY = 92; // same as lib/film-look.ts
+
+/** Grades the full photo with the film shader on an offscreen Skia surface. */
+function gradeOnGpu(photo: Photo, look: FilmLook) {
+  // toImage() applies the EXIF rotation and mirroring, so pixels are upright.
+  const image = photo.toImage();
+  try {
+    const { buffer, width, height, pixelFormat } = image.toRawPixelData();
+    if (pixelFormat !== 'RGBA' && pixelFormat !== 'RGBX') {
+      throw new Error(`Unsupported pixel format ${pixelFormat}`);
+    }
+    const source = Skia.Image.MakeImage(
+      { width, height, alphaType: AlphaType.Opaque, colorType: ColorType.RGBA_8888 },
+      Skia.Data.fromBytes(new Uint8Array(buffer)),
+      width * 4,
+    );
+    const surface = Skia.Surface.MakeOffscreen(width, height) ?? Skia.Surface.Make(width, height);
+    if (!source || !surface || !effect || !noiseImage) throw new Error('Skia setup failed');
+    const uniforms = flattenFilmShaderUniforms(
+      computeFilmShaderUniforms(look, width, height, Date.now() & 0xffff),
+    );
+    const paint = Skia.Paint();
+    paint.setShader(
+      effect.makeShaderWithChildren(uniforms, [
+        source.makeShaderOptions(TileMode.Clamp, TileMode.Clamp, FilterMode.Nearest, MipmapMode.None),
+        noiseImage.makeShaderOptions(TileMode.Repeat, TileMode.Repeat, FilterMode.Nearest, MipmapMode.None),
+      ]),
+    );
+    surface.getCanvas().drawRect({ x: 0, y: 0, width, height }, paint);
+    surface.flush();
+    const base64 = surface.makeImageSnapshot().encodeToBase64(ImageFormat.JPEG, OUTPUT_QUALITY);
+    return { base64, width, height };
+  } finally {
+    image.dispose();
+  }
+}
 
 type Props = {
   ref?: React.Ref<FilmCameraHandle>;
@@ -75,6 +123,7 @@ export function FilmCamera({
   onError,
 }: Props) {
   'use no memo'; // the frame callback below is a worklet; keep it out of React Compiler
+  // shortcut: default 12 MP (UHD_4_3) capture; full-sensor 50 MP means ~200 MB of raw pixels in JS, raise only after testing memory on the phone.
   const photoOutput = usePhotoOutput();
   const outputs = useMemo(() => [photoOutput], [photoOutput]);
 
@@ -107,17 +156,24 @@ export function FilmCamera({
           const path = await photo.saveToTemporaryFileAsync();
           // Width and height are the sensor's; the rotation is only an EXIF flag.
           const sideways = photo.orientation === 'left' || photo.orientation === 'right';
+          let graded;
+          try {
+            graded = gradeOnGpu(photo, look);
+          } catch (error) {
+            console.warn('GPU grade failed, using the jpeg-js path:', error);
+          }
           return {
             uri: `file://${path}`,
             width: sideways ? photo.height : photo.width,
             height: sideways ? photo.width : photo.height,
+            graded,
           };
         } finally {
           photo.dispose();
         }
       },
     }),
-    [photoOutput, facing, flash],
+    [photoOutput, facing, flash, look],
   );
 
   // shortcut: grain is the same pattern every frame (it sticks to the screen); animate it

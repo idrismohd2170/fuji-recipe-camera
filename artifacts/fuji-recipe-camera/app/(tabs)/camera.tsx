@@ -267,13 +267,17 @@ export default function CameraScreen() {
       if (!source?.uri) throw new Error('The camera did not return an image.');
       tempUri = source.uri;
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const rendered = await renderFilmLook(
-        source.uri,
-        activeRecipe,
-        source.width,
-        source.height,
-        (label, fraction) => setProgress({ label, percent: Math.round(fraction * 100) }),
-      );
+      // VisionCamera grades the full-size photo on the GPU; otherwise (expo-camera, or the
+      // GPU grade failed) the jpeg-js path grades it, capped at 2560 px.
+      const rendered =
+        ('graded' in source && source.graded) ||
+        (await renderFilmLook(
+          source.uri,
+          activeRecipe,
+          source.width,
+          source.height,
+          (label, fraction) => setProgress({ label, percent: Math.round(fraction * 100) }),
+        ));
       const documents = FileSystem.documentDirectory;
       if (!documents) throw new Error('Photo storage is unavailable on this device.');
       const folder = `${documents}film-photos/`;
