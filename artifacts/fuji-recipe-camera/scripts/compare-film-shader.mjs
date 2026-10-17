@@ -133,6 +133,13 @@ for (const { name, look } of looks) {
 }
 console.log(`\nPart 1 overall max difference: ${overall} levels with grain, ${overallNoGrain} levels without grain.\n`);
 
+// 1 level is 8-bit rounding; a bigger gap means the preview shader and the photo grade drifted apart.
+const MAX_DIFF = 2;
+if (overall > MAX_DIFF || overallNoGrain > MAX_DIFF) {
+  console.error(`FAILED: reference differs from gradePixels by more than ${MAX_DIFF} levels.`);
+  process.exit(1);
+}
+
 // ---------------------------------------------------------------- Part 2
 function findCanvasKit() {
   const candidates = [path.join(here, '..', 'node_modules', 'canvaskit-wasm')];
@@ -150,7 +157,7 @@ function findCanvasKit() {
 const canvasKitDir = findCanvasKit();
 if (!canvasKitDir) {
   console.log('Part 2 skipped: canvaskit-wasm not found (install dependencies first).');
-  process.exit(0);
+  process.exit(process.env.CI ? 1 : 0); // CI must not silently skip the SkSL compile check
 }
 
 const require = createRequire(path.join(canvasKitDir, 'package.json'));
@@ -236,3 +243,7 @@ for (const { name, look } of looks) {
 console.log(
   `\nPart 2 overall max difference: SkSL vs reference ${shaderVsRef} levels; SkSL vs gradePixels ${shaderVsGrade} levels with grain, ${shaderVsGradeNoGrain} without grain.`,
 );
+if (shaderVsRef > 1 || shaderVsGrade > MAX_DIFF || shaderVsGradeNoGrain > MAX_DIFF) {
+  console.error('FAILED: the SkSL output differs from the reference or from gradePixels.');
+  process.exit(1);
+}

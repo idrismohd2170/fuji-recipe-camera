@@ -17,12 +17,13 @@ import type { FilmLook } from '@/constants/recipes';
 
 type Vec3 = readonly [number, number, number];
 
-const NOISE_SIZE = 256;
+export const NOISE_SIZE = 256;
 const NOISE_MASK = NOISE_SIZE - 1;
 
 let noiseTile: Float32Array | null = null;
 
-function getNoiseTile() {
+/** Shared with lib/film-shader.ts so live preview grain and graded photos use one pattern. */
+export function getNoiseTile() {
   if (noiseTile) return noiseTile;
   const tile = new Float32Array(NOISE_SIZE * NOISE_SIZE);
   let state = 0x9e3779b9;

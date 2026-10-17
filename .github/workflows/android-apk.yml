@@ -56,6 +56,11 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      # Fails the build if the live-preview shader and the photo grade drift apart.
+      - name: Check film shader maths
+        working-directory: artifacts/fuji-recipe-camera
+        run: node --no-warnings scripts/compare-film-shader.mjs
+
       # `--non-interactive` is not a valid expo flag; CI=1 (set above) is what
       # disables prompts.
       - name: Generate Android project

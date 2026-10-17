@@ -1,4 +1,5 @@
 import type { FilmLook, Vec3 } from '@/constants/recipes';
+import { NOISE_SIZE, getNoiseTile } from './film-grade.ts';
 
 /**
  * GPU port of the film look in `lib/film-grade.ts`, as a Skia runtime effect
@@ -24,7 +25,7 @@ import type { FilmLook, Vec3 } from '@/constants/recipes';
  *   - the output is 0..1 float; `gradePixels` writes rounded 8-bit values
  */
 
-export const FILM_NOISE_SIZE = 256;
+export const FILM_NOISE_SIZE = NOISE_SIZE;
 /** The noise tile has unit variance; it is stored as 0.5 + n / NOISE_RANGE. */
 export const FILM_NOISE_RANGE = 8;
 
@@ -273,40 +274,7 @@ export function flattenFilmShaderUniforms(u: FilmShaderUniforms): number[] {
   return out;
 }
 
-let noiseFloat: Float32Array | null = null;
 let noiseBytes: Uint8Array | null = null;
-
-/**
- * The same unit-variance Gaussian-ish tile as the private one in
- * `lib/film-grade.ts` (same xorshift seed and normalisation), so live preview
- * grain and `gradePixels` grain come from one pattern.
- */
-function getNoiseFloat() {
-  if (noiseFloat) return noiseFloat;
-  const tile = new Float32Array(FILM_NOISE_SIZE * FILM_NOISE_SIZE);
-  let state = 0x9e3779b9;
-  const next = () => {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    return (state >>> 0) / 4294967296 - 0.5;
-  };
-  let sum = 0;
-  let sumSquares = 0;
-  for (let index = 0; index < tile.length; index += 1) {
-    const value = next() + next() + next();
-    tile[index] = value;
-    sum += value;
-    sumSquares += value * value;
-  }
-  const mean = sum / tile.length;
-  const deviation = Math.sqrt(sumSquares / tile.length - mean * mean) || 1;
-  for (let index = 0; index < tile.length; index += 1) {
-    tile[index] = (tile[index] - mean) / deviation;
-  }
-  noiseFloat = tile;
-  return tile;
-}
 
 /**
  * RGBA8 pixels (256 x 256, opaque, R = G = B) for the shader's `noise` child.
@@ -314,7 +282,7 @@ function getNoiseFloat() {
  */
 export function createFilmNoiseBytes(): Uint8Array {
   if (noiseBytes) return noiseBytes;
-  const tile = getNoiseFloat();
+  const tile = getNoiseTile();
   const bytes = new Uint8Array(tile.length * 4);
   for (let index = 0; index < tile.length; index += 1) {
     const encoded = Math.round(clamp(0.5 + tile[index] / FILM_NOISE_RANGE, 0, 1) * 255);
