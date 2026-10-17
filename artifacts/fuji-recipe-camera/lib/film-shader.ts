@@ -1,5 +1,12 @@
 import type { FilmLook, Vec3 } from '@/constants/recipes';
-import { NOISE_SIZE, getNoiseTile } from './film-grade.ts';
+import {
+  HUE_BAND_POSITIONS,
+  HUE_RED_ANGLE,
+  NOISE_SIZE,
+  activeHueBands,
+  applyHueBands,
+  getNoiseTile,
+} from './film-grade.ts';
 
 /**
  * GPU port of the film look in `lib/film-grade.ts`, as a Skia runtime effect
@@ -11,7 +18,9 @@ import { NOISE_SIZE, getNoiseTile } from './film-grade.ts';
  *   1. exposure + white balance in linear light, then the filmic S-curve with
  *      highlight roll-off, shadow lift and black fade (analytic, per channel;
  *      `gradePixels` bakes the same formula into a 256-entry LUT)
+ *      (plus the optional per-channel curve shaping `channelGamma`)
  *   2. colour matrix, or the channel mix for monochrome stocks
+ *      (plus the optional hue-selective bands, `hueBands`)
  *   3. vibrance-style saturation
  *   4. split toning
  *   5. luminance-weighted grain from the same noise tile, plus a little
@@ -28,6 +37,8 @@ import { NOISE_SIZE, getNoiseTile } from './film-grade.ts';
 export const FILM_NOISE_SIZE = NOISE_SIZE;
 /** The noise tile has unit variance; it is stored as 0.5 + n / NOISE_RANGE. */
 export const FILM_NOISE_RANGE = 8;
+
+const HP = HUE_BAND_POSITIONS.map((value) => value.toFixed(6));
 
 export const FILM_SHADER_SKSL = `
 uniform shader image;
@@ -55,8 +66,17 @@ uniform float grainAmount;
 uniform float grainBlock;
 uniform float grainSeedRows;
 uniform float vignette;
+uniform float3 channelGamma;
+uniform float hueActive;
+uniform float3 hueBand0;
+uniform float3 hueBand1;
+uniform float3 hueBand2;
+uniform float3 hueBand3;
+uniform float3 hueBand4;
+uniform float3 hueBand5;
 
 const float TAU = 6.283185307179586;
+const float HUE_RED_ANGLE = ${HUE_RED_ANGLE.toFixed(6)};
 const float NOISE_RANGE = ${FILM_NOISE_RANGE.toFixed(1)};
 
 float srgbToLinear(float v) {
@@ -80,15 +100,49 @@ float rawTone(float x) {
   return y;
 }
 
-float tone(float v, float gain) {
+float tone(float v, float gain, float gamma) {
   float x = clamp(linearToSrgb(srgbToLinear(v) * exposureGain * gain), 0.0, 1.0);
   float n = clamp((rawTone(x) - toneBlack) / toneSpan, 0.0, 1.0);
-  return fade + n * (1.0 - fade);
+  return fade + pow(n, gamma) * (1.0 - fade);
+}
+
+float hat(float x, float a, float b, float c) {
+  return x < b ? clamp((x - a) / (b - a), 0.0, 1.0) : clamp((c - x) / (c - b), 0.0, 1.0);
+}
+
+// Hue-selective colour: same maths as applyHueBands in lib/film-grade.ts.
+float3 applyHueBands(float3 c) {
+  float luma = dot(c, float3(0.2126, 0.7152, 0.0722));
+  float u = c.r - luma;
+  float v = c.b - luma;
+  float chroma = length(float2(u, v));
+  if (chroma < 1e-6) {
+    return c;
+  }
+  float theta = atan(v, u);
+  float x = mod(HUE_RED_ANGLE - theta * 57.29577951308232, 360.0);
+  float redX = x > 180.0 ? x - 360.0 : x;
+  float3 band = hat(redX, ${(HUE_BAND_POSITIONS[5] - 360).toFixed(6)}, ${HP[0]}, ${HP[1]}) * hueBand0
+    + hat(x, ${HP[0]}, ${HP[1]}, ${HP[2]}) * hueBand1
+    + hat(x, ${HP[1]}, ${HP[2]}, ${HP[3]}) * hueBand2
+    + hat(x, ${HP[2]}, ${HP[3]}, ${HP[4]}) * hueBand3
+    + hat(x, ${HP[3]}, ${HP[4]}, ${HP[5]}) * hueBand4
+    + hat(x, ${HP[4]}, ${HP[5]}, 360.0) * hueBand5;
+  float angle = theta - band.x * 0.017453292519943295;
+  float len = chroma * max(0.0, 1.0 + band.y);
+  float nl = luma + band.z * min(chroma * 2.0, 1.0);
+  float nr = nl + len * cos(angle);
+  float nb = nl + len * sin(angle);
+  return float3(nr, (nl - 0.2126 * nr - 0.0722 * nb) / 0.7152, nb);
 }
 
 half4 main(float2 xy) {
   float3 src = image.eval(xy).rgb;
-  float3 c = float3(tone(src.r, wbGain.r), tone(src.g, wbGain.g), tone(src.b, wbGain.b));
+  float3 c = float3(
+    tone(src.r, wbGain.r, channelGamma.r),
+    tone(src.g, wbGain.g, channelGamma.g),
+    tone(src.b, wbGain.b, channelGamma.b)
+  );
 
   float lum;
   if (useMono > 0.5) {
@@ -96,6 +150,9 @@ half4 main(float2 xy) {
     c = float3(lum);
   } else {
     c = float3(dot(matrixRow0, c), dot(matrixRow1, c), dot(matrixRow2, c));
+    if (hueActive > 0.5) {
+      c = applyHueBands(c);
+    }
     lum = dot(c, float3(0.2126, 0.7152, 0.0722));
     float high = max(c.r, max(c.g, c.b));
     float low = min(c.r, min(c.g, c.b));
@@ -164,6 +221,15 @@ export type FilmShaderUniforms = {
   grainBlock: number;
   grainSeedRows: number;
   vignette: number;
+  channelGamma: Vec3;
+  hueActive: number;
+  /** [hue shift in degrees, saturation change, brightness change] per band, red..magenta. */
+  hueBand0: Vec3;
+  hueBand1: Vec3;
+  hueBand2: Vec3;
+  hueBand3: Vec3;
+  hueBand4: Vec3;
+  hueBand5: Vec3;
 };
 
 /** Declaration order of the uniforms in the SkSL above (children excluded). */
@@ -190,6 +256,14 @@ export const FILM_UNIFORM_ORDER: readonly (keyof FilmShaderUniforms)[] = [
   'grainBlock',
   'grainSeedRows',
   'vignette',
+  'channelGamma',
+  'hueActive',
+  'hueBand0',
+  'hueBand1',
+  'hueBand2',
+  'hueBand3',
+  'hueBand4',
+  'hueBand5',
 ];
 
 function clamp(value: number, min: number, max: number) {
@@ -233,6 +307,7 @@ export function computeFilmShaderUniforms(
   const toneSpan = rawTone(1, partial) - toneBlack || 1;
   const matrix = look.matrix;
   const mono = look.channelMix;
+  const bands = activeHueBands(look);
 
   return {
     vignetteCenter: [(width - 1) / 2 || 1, (height - 1) / 2 || 1],
@@ -259,6 +334,14 @@ export function computeFilmShaderUniforms(
     grainBlock: Math.max(1, Math.round((look.grainSize * Math.max(width, height)) / 3000)),
     grainSeedRows: (grainSeed * 40503) & 0xffff,
     vignette: look.vignette,
+    channelGamma: look.channelGamma ?? [1, 1, 1],
+    hueActive: bands ? 1 : 0,
+    hueBand0: bands ? [bands[0], bands[1], bands[2]] : [0, 0, 0],
+    hueBand1: bands ? [bands[3], bands[4], bands[5]] : [0, 0, 0],
+    hueBand2: bands ? [bands[6], bands[7], bands[8]] : [0, 0, 0],
+    hueBand3: bands ? [bands[9], bands[10], bands[11]] : [0, 0, 0],
+    hueBand4: bands ? [bands[12], bands[13], bands[14]] : [0, 0, 0],
+    hueBand5: bands ? [bands[15], bands[16], bands[17]] : [0, 0, 0],
   };
 }
 
@@ -324,15 +407,15 @@ export function evaluateFilmPixelReference(
   x: number,
   y: number,
 ): [number, number, number] {
-  const tone = (v: number, gain: number) => {
+  const tone = (v: number, gain: number, gamma: number) => {
     const xv = clamp(linearToSrgb(srgbToLinear(v) * u.exposureGain * gain), 0, 1);
     const n = clamp((rawTone(xv, u) - u.toneBlack) / u.toneSpan, 0, 1);
-    return u.fade + n * (1 - u.fade);
+    return u.fade + Math.pow(n, gamma) * (1 - u.fade);
   };
 
-  let r = tone(rgb[0] / 255, u.wbGain[0]);
-  let g = tone(rgb[1] / 255, u.wbGain[1]);
-  let b = tone(rgb[2] / 255, u.wbGain[2]);
+  let r = tone(rgb[0] / 255, u.wbGain[0], u.channelGamma[0]);
+  let g = tone(rgb[1] / 255, u.wbGain[1], u.channelGamma[1]);
+  let b = tone(rgb[2] / 255, u.wbGain[2], u.channelGamma[2]);
 
   let lum: number;
   if (u.useMono > 0.5) {
@@ -347,6 +430,19 @@ export function evaluateFilmPixelReference(
     r = nr;
     g = ng;
     b = nb;
+    if (u.hueActive > 0.5) {
+      const shifted = applyHueBands(r, g, b, [
+        ...u.hueBand0,
+        ...u.hueBand1,
+        ...u.hueBand2,
+        ...u.hueBand3,
+        ...u.hueBand4,
+        ...u.hueBand5,
+      ]);
+      r = shifted[0];
+      g = shifted[1];
+      b = shifted[2];
+    }
     lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const high = Math.max(r, g, b);
     const low = Math.min(r, g, b);

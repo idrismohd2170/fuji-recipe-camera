@@ -74,6 +74,15 @@ const looks = [
       vignette: 0.6,
     },
   },
+  {
+    name: 'stress (hue bands + curves)',
+    look: {
+      ...recipes[0].look,
+      saturation: 1.2,
+      channelGamma: [1.25, 1, 0.8],
+      hueBands: [20, 0.5, -0.05, -30, 0.3, 0.05, 25, -0.4, 0.03, 10, 0.6, -0.04, -15, 0.7, 0.06, 35, 0.4, -0.02],
+    },
+  },
 ];
 
 function toLevels(rgb) {

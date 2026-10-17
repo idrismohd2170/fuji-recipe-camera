@@ -8,7 +8,9 @@ import type { FilmLook } from '@/constants/recipes';
  *   1. exposure + white balance, done in linear light (per-channel LUT)
  *   2. filmic S-curve with highlight roll-off, shadow lift and black fade
  *      (same per-channel LUT, so contrast also shifts colour like real film)
+ *      then an optional per-channel curve shaping (`channelGamma`)
  *   3. simulation colour matrix (or channel mix for monochrome stocks)
+ *      then optional hue-selective colour (`hueBands`)
  *   4. vibrance-style saturation that protects already-saturated colours
  *   5. split toning (shadow / highlight tints)
  *   6. luminance-weighted film grain from a pre-made noise tile
@@ -69,6 +71,86 @@ function clamp01(value: number) {
   return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
+const RAD_TO_DEG = 180 / Math.PI;
+const DEG_TO_RAD = Math.PI / 180;
+
+/** Hue of a colour = angle of its chroma in the (r - luma, b - luma) plane, in degrees. */
+function chromaAngle(r: number, g: number, b: number) {
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return Math.atan2(b - luma, r - luma) * RAD_TO_DEG;
+}
+
+/** Angle of pure red; hue positions below are measured from it, going red -> yellow -> green. */
+export const HUE_RED_ANGLE = chromaAngle(1, 0, 0);
+
+/**
+ * Where red, yellow, green, cyan, blue and magenta sit on that 0..360 degree hue circle. The
+ * band weights are linear "hat" functions between neighbours, so they always add up to 1.
+ * Shared with lib/film-shader.ts, which writes the same numbers into the SkSL.
+ */
+export const HUE_BAND_POSITIONS: readonly number[] = [
+  [1, 0, 0],
+  [1, 1, 0],
+  [0, 1, 0],
+  [0, 1, 1],
+  [0, 0, 1],
+  [1, 0, 1],
+].map(([r, g, b]) => (((HUE_RED_ANGLE - chromaAngle(r, g, b)) % 360) + 360) % 360);
+
+function hat(x: number, a: number, b: number, c: number) {
+  return x < b ? clamp01((x - a) / (b - a)) : clamp01((c - x) / (c - b));
+}
+
+/** The look's hue bands if they do anything, else null (so plain recipes skip the work). */
+export function activeHueBands(look: FilmLook): readonly number[] | null {
+  'worklet'; // called from computeFilmShaderUniforms, which runs on the camera thread
+  const bands = look.hueBands;
+  return bands && bands.length >= 18 && bands.some((value) => value !== 0) ? bands : null;
+}
+
+const hueOut = new Float32Array(3);
+
+/**
+ * Hue-selective colour on one pixel (r, g, b in 0..1, may be outside that range). Rotates the
+ * chroma by the blended hue shift, scales it by the blended saturation, and shifts brightness
+ * in proportion to how colourful the pixel is, so greys never move. Returns a shared buffer.
+ */
+export function applyHueBands(r: number, g: number, b: number, bands: readonly number[]) {
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const u = r - luma;
+  const v = b - luma;
+  const chroma = Math.hypot(u, v);
+  if (chroma < 1e-6) {
+    hueOut[0] = r;
+    hueOut[1] = g;
+    hueOut[2] = b;
+    return hueOut;
+  }
+  const theta = Math.atan2(v, u);
+  const x = (((HUE_RED_ANGLE - theta * RAD_TO_DEG) % 360) + 360) % 360;
+  const p = HUE_BAND_POSITIONS;
+  const redX = x > 180 ? x - 360 : x;
+  const w0 = hat(redX, p[5] - 360, p[0], p[1]);
+  const w1 = hat(x, p[0], p[1], p[2]);
+  const w2 = hat(x, p[1], p[2], p[3]);
+  const w3 = hat(x, p[2], p[3], p[4]);
+  const w4 = hat(x, p[3], p[4], p[5]);
+  const w5 = hat(x, p[4], p[5], 360);
+  const hue = w0 * bands[0] + w1 * bands[3] + w2 * bands[6] + w3 * bands[9] + w4 * bands[12] + w5 * bands[15];
+  const sat = w0 * bands[1] + w1 * bands[4] + w2 * bands[7] + w3 * bands[10] + w4 * bands[13] + w5 * bands[16];
+  const lum = w0 * bands[2] + w1 * bands[5] + w2 * bands[8] + w3 * bands[11] + w4 * bands[14] + w5 * bands[17];
+
+  const angle = theta - hue * DEG_TO_RAD;
+  const length = chroma * Math.max(0, 1 + sat);
+  const newLuma = luma + lum * Math.min(chroma * 2, 1);
+  const nr = newLuma + length * Math.cos(angle);
+  const nb = newLuma + length * Math.sin(angle);
+  hueOut[0] = nr;
+  hueOut[1] = (newLuma - 0.2126 * nr - 0.0722 * nb) / 0.7152;
+  hueOut[2] = nb;
+  return hueOut;
+}
+
 /** Smooth S-curve that keeps 0, 0.5 and 1 fixed. */
 function rawTone(x: number, look: FilmLook) {
   const amount = Math.max(-0.85, Math.min(0.85, look.contrast - 1));
@@ -78,7 +160,7 @@ function rawTone(x: number, look: FilmLook) {
   return y;
 }
 
-function buildToneLut(look: FilmLook, gain: number) {
+function buildToneLut(look: FilmLook, gain: number, gamma: number) {
   const lut = new Float32Array(256);
   const exposureGain = Math.pow(2, look.exposure);
   const black = rawTone(0, look);
@@ -90,7 +172,8 @@ function buildToneLut(look: FilmLook, gain: number) {
     // Re-normalise so pure black stays black and pure white stays white
     // before the fade lifts the blacks.
     const normalised = clamp01((rawTone(x, look) - black) / span);
-    const faded = look.fade + normalised * (1 - look.fade);
+    const shaped = gamma === 1 ? normalised : Math.pow(normalised, gamma);
+    const faded = look.fade + shaped * (1 - look.fade);
     lut[value] = faded * 255;
   }
   return lut;
@@ -148,9 +231,11 @@ export async function gradePixels(
   const redGain = 1 + 0.12 * look.warmth;
   const blueGain = 1 - 0.14 * look.warmth;
   const greenGain = 1 - 0.06 * look.tint;
-  const lutR = buildToneLut(look, redGain);
-  const lutG = buildToneLut(look, greenGain);
-  const lutB = buildToneLut(look, blueGain);
+  const gamma = look.channelGamma ?? [1, 1, 1];
+  const lutR = buildToneLut(look, redGain, gamma[0]);
+  const lutG = buildToneLut(look, greenGain, gamma[1]);
+  const lutB = buildToneLut(look, blueGain, gamma[2]);
+  const hueBands = activeHueBands(look);
 
   const split = buildSplitTone(look.shadowTone, look.highlightTone);
   const grainWeight = buildGrainWeight();
@@ -218,6 +303,12 @@ export async function gradePixels(
           r = nr;
           g = ng;
           b = nb;
+        }
+        if (hueBands) {
+          const shifted = applyHueBands(r / 255, g / 255, b / 255, hueBands);
+          r = shifted[0] * 255;
+          g = shifted[1] * 255;
+          b = shifted[2] * 255;
         }
         luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         const high = r > g ? (r > b ? r : b) : g > b ? g : b;
