@@ -5,7 +5,6 @@ import {
   Image,
   Linking,
   Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -202,18 +201,6 @@ export default function CameraScreen() {
       };
     }, []),
   );
-
-  if (Platform.OS === 'web') {
-    return (
-      <PermissionPanel
-        title="Take it to your phone"
-        copy="Live camera capture is available in the mobile app. Open this project on your Android phone to use the S24 Ultra camera."
-        button="Back to recipes"
-        onPress={() => router.navigate('/')}
-        colors={colors}
-      />
-    );
-  }
 
   if (!cameraPermission) {
     return (

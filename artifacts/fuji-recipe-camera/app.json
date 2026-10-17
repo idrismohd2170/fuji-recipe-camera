@@ -18,9 +18,6 @@
       ],
       "package": "com.idrismohd.fujirecipecamera"
     },
-    "web": {
-      "favicon": "./assets/images/icon.png"
-    },
     "plugins": [
       "expo-router",
       [

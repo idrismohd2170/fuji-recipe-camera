@@ -1,11 +1,11 @@
-import { Alert, Linking, Platform } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
 /** Name of the album that saved photos go into on the phone. */
 export const ALBUM_NAME = 'Fuji Recipe';
 
 type ExportResult =
   | { ok: true; count: number }
-  | { ok: false; reason: 'web' | 'denied' | 'error'; canAskAgain?: boolean; message?: string };
+  | { ok: false; reason: 'denied' | 'error'; canAskAgain?: boolean; message?: string };
 
 // shortcut: remembers saves only until the app restarts, so a photo saved last week can be
 // copied to the album again; store a flag on SavedPhoto if that matters.
@@ -17,7 +17,6 @@ const savedThisRun = new Set<string>();
  * Album.create and Asset.create.
  */
 export async function savePhotosToAlbum(allUris: string[]): Promise<ExportResult> {
-  if (Platform.OS === 'web') return { ok: false, reason: 'web' };
   const uris = allUris.filter((uri) => !savedThisRun.has(uri));
   if (uris.length === 0) return { ok: true, count: allUris.length };
   try {
@@ -56,10 +55,6 @@ export function reportSaveResult(result: ExportResult) {
     );
     return;
   }
-  if (result.reason === 'web') {
-    Alert.alert('Use your phone', 'Saving to the phone gallery is available in the Android app.');
-    return;
-  }
   if (result.reason === 'denied') {
     Alert.alert(
       'Photo access is needed',
@@ -80,10 +75,6 @@ export function reportSaveResult(result: ExportResult) {
 
 /** Opens the system share sheet for one photo file. */
 export async function sharePhoto(uri: string): Promise<void> {
-  if (Platform.OS === 'web') {
-    Alert.alert('Use your phone', 'Sharing is available in the Android app.');
-    return;
-  }
   try {
     const Sharing = await import('expo-sharing');
     if (!(await Sharing.isAvailableAsync())) {
