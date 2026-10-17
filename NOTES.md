@@ -298,3 +298,8 @@ Findings numbered as in the audit report. Nothing here was run on a device.
 - **8** Removed the web-only branches in `camera.tsx` and `lib/photo-export.ts`, the `web` block in `app.json`, and `react-native-web`, `react-dom`, `@types/react-dom`.
 - **Left alone on purpose (not in the audit, say if you want them gone):** `components/KeyboardAwareScrollViewCompat.tsx` (nothing imports it), the root `scripts/` workspace and `tsconfig.base.json`, the unused `catalog:` and `overrides:` entries in `pnpm-workspace.yaml`, and `react-native-svg` (no import found, peers not checked).
 - Checks after all audit fixes: typecheck 0 errors (app and root), the shader script passes with `CI=1`, `expo export --platform android` bundles, `expo prebuild` completes. Nothing was run on a device. The APK build for these commits is the next check (`gh run list`).
+
+### Device fix: "Camera unavailable ... PRIVATE format with resolution 1440x1080 is not supported for ImageAnalysis" (2026-10-18)
+- **Seen on the S24 Ultra (first run of the VisionCamera path):** tapping the Camera tab showed the alert from `bindToLifecycle`. `SkiaCamera` defaults `pixelFormat` to `'native'` on Android, which resolves to PRIVATE; CameraX's ImageAnalysis (the frame output) cannot deliver PRIVATE at the 1440x1080 (`FHD_4_3`) size we request.
+- **Fix:** `components/FilmCamera.tsx` passes `pixelFormat="rgb"` to `SkiaCamera` (RGBA_8888: always supported by ImageAnalysis, importable by Skia). Costs more bandwidth than YUV, fine at 1440x1080.
+- **Unverified on device:** that the preview now renders (not black) and keeps a smooth frame rate. If it is black, the RGBA buffer import failed; if it is slow or hot, try `'yuv'`.

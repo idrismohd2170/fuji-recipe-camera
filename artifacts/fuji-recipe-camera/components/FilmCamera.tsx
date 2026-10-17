@@ -226,6 +226,10 @@ export function FilmCamera({
       outputs={outputs}
       // The photo output defaults to 4:3, so the preview frames are 4:3 too.
       targetResolution={CommonResolutions.FHD_4_3}
+      // SkiaCamera defaults to 'native' on Android = PRIVATE, which CameraX's ImageAnalysis
+      // rejects at 1440x1080 on the S24 Ultra ("PRIVATE format ... not supported"). RGBA is
+      // always supported there. shortcut: 'yuv' is lighter but untested with Skia on Android.
+      pixelFormat="rgb"
       onFrame={onFrame}
       onStarted={onReady}
       onError={(error) => onError(error.message)}
