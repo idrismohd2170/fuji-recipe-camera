@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
 import {
@@ -25,6 +25,7 @@ import {
   createFilmNoiseBytes,
   flattenFilmShaderUniforms,
 } from '@/lib/film-shader';
+import { OUTPUT_QUALITY } from '@/lib/film-look';
 
 /**
  * Live preview with the real recipe: every camera frame goes through the film shader in
@@ -62,14 +63,12 @@ export type FilmCameraHandle = {
   }>;
 };
 
-const OUTPUT_QUALITY = 92; // same as lib/film-look.ts
-
 /** Grades the full photo with the film shader on an offscreen Skia surface. */
-function gradeOnGpu(photo: Photo, look: FilmLook) {
+async function gradeOnGpu(photo: Photo, look: FilmLook) {
   // toImage() applies the EXIF rotation and mirroring, so pixels are upright.
-  const image = photo.toImage();
+  const image = await photo.toImageAsync();
   try {
-    const { buffer, width, height, pixelFormat } = image.toRawPixelData();
+    const { buffer, width, height, pixelFormat } = await image.toRawPixelDataAsync();
     if (pixelFormat !== 'RGBA' && pixelFormat !== 'RGBX') {
       throw new Error(`Unsupported pixel format ${pixelFormat}`);
     }
@@ -90,6 +89,8 @@ function gradeOnGpu(photo: Photo, look: FilmLook) {
         noiseImage.makeShaderOptions(TileMode.Repeat, TileMode.Repeat, FilterMode.Nearest, MipmapMode.None),
       ]),
     );
+    // shortcut: the draw and the JPEG encode below have no async version in Skia, so they
+    // block the JS thread for the length of one shot; move to a worklet if that stutters.
     surface.getCanvas().drawRect({ x: 0, y: 0, width, height }, paint);
     surface.flush();
     const base64 = surface.makeImageSnapshot().encodeToBase64(ImageFormat.JPEG, OUTPUT_QUALITY);
@@ -144,6 +145,17 @@ export function FilmCamera({
     zoom.set(withTiming(target, { duration: 250 }));
   }, [target, zoom]);
 
+  // Report the zoom range after any render once the device knows it: on Android it reads 0
+  // until CameraX's zoom state is ready, so reading it only at start can miss it.
+  const reportedRange = useRef({ min: 0, max: 0 });
+  useEffect(() => {
+    if (!device || device.maxZoom <= 0) return;
+    const range = { min: device.minZoom, max: device.maxZoom };
+    if (range.min === reportedRange.current.min && range.max === reportedRange.current.max) return;
+    reportedRange.current = range;
+    onZoomRange(range);
+  });
+
   useImperativeHandle(
     ref,
     () => ({
@@ -158,7 +170,7 @@ export function FilmCamera({
           const sideways = photo.orientation === 'left' || photo.orientation === 'right';
           let graded;
           try {
-            graded = gradeOnGpu(photo, look);
+            graded = await gradeOnGpu(photo, look);
           } catch (error) {
             console.warn('GPU grade failed, using the jpeg-js path:', error);
           }
@@ -215,10 +227,7 @@ export function FilmCamera({
       // The photo output defaults to 4:3, so the preview frames are 4:3 too.
       targetResolution={CommonResolutions.FHD_4_3}
       onFrame={onFrame}
-      onStarted={() => {
-        if (device) onZoomRange({ min: device.minZoom, max: device.maxZoom });
-        onReady();
-      }}
+      onStarted={onReady}
       onError={(error) => onError(error.message)}
     />
   );

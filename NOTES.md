@@ -283,3 +283,11 @@ The APK workflow run for the Step 4 commit (`eea662c`, run 38897633649) finished
 - When the fallback is no longer needed: delete the expo-camera path, `LivePreviewOverlay.tsx`, the JS zoom glide and `ASSUMED_MAX_ZOOM_RATIO` in `camera.tsx` (needs your approval to delete files), and the jpeg-js path if the GPU grade proves reliable.
 - Real blur on the tab bar and over the camera preview (needs a custom tab scene wrapper; the preview is a native surface).
 - Light mode and the pre-existing items under "Known issues" are unchanged.
+
+### Audit fixes (ponytail-audit, 2026-10-17)
+Findings numbered as in the audit report. Nothing here was run on a device.
+- **1** `camera.tsx`: the `FilmCamera` require is wrapped in try/catch, so a native load failure falls back to expo-camera instead of crashing at launch.
+- **2** Lens pills: `FilmCamera` now reports the device zoom range after any render once it is non-zero (Android reads 0 until CameraX is ready), and the screen enables all pills while the range is unknown.
+- **5** `FilmCamera.gradeOnGpu` uses `toImageAsync` and `toRawPixelDataAsync`; the Skia draw and JPEG encode stay synchronous (`shortcut:` comment).
+- **9** `savePhotosToAlbum` skips photos already saved in this app run (`shortcut:` comment: not remembered across restarts).
+- **10** `OUTPUT_QUALITY` is exported from `lib/film-look.ts` and imported by `FilmCamera` (added export; the existing exports are unchanged).

@@ -7,14 +7,19 @@ type ExportResult =
   | { ok: true; count: number }
   | { ok: false; reason: 'web' | 'denied' | 'error'; canAskAgain?: boolean; message?: string };
 
+// shortcut: remembers saves only until the app restarts, so a photo saved last week can be
+// copied to the album again; store a flag on SavedPhoto if that matters.
+const savedThisRun = new Set<string>();
+
 /**
  * Copies photos from app storage into the phone's media library, inside the named album
  * (created on first use). Uses the object API of expo-media-library 57: Album.get,
  * Album.create and Asset.create.
  */
-export async function savePhotosToAlbum(uris: string[]): Promise<ExportResult> {
+export async function savePhotosToAlbum(allUris: string[]): Promise<ExportResult> {
   if (Platform.OS === 'web') return { ok: false, reason: 'web' };
-  if (uris.length === 0) return { ok: true, count: 0 };
+  const uris = allUris.filter((uri) => !savedThisRun.has(uri));
+  if (uris.length === 0) return { ok: true, count: allUris.length };
   try {
     const mediaLibrary = await import('expo-media-library');
     const permission = await mediaLibrary.requestPermissionsAsync(true, ['photo']);
@@ -22,7 +27,6 @@ export async function savePhotosToAlbum(uris: string[]): Promise<ExportResult> {
       return { ok: false, reason: 'denied', canAskAgain: permission.canAskAgain };
     }
     let album = await mediaLibrary.Album.get(ALBUM_NAME);
-    let saved = 0;
     for (const uri of uris) {
       if (!album) {
         // Album.create needs at least one asset, so the first photo creates the album.
@@ -31,9 +35,9 @@ export async function savePhotosToAlbum(uris: string[]): Promise<ExportResult> {
       } else {
         await mediaLibrary.Asset.create(uri, album);
       }
-      saved += 1;
+      savedThisRun.add(uri);
     }
-    return { ok: true, count: saved };
+    return { ok: true, count: allUris.length };
   } catch (error) {
     return {
       ok: false,

@@ -40,9 +40,16 @@ import { makeThumbnail } from '@/lib/photo-store';
  * native camera modules.
  */
 const USE_VISION_CAMERA = true;
-const Film = USE_VISION_CAMERA
-  ? (require('@/components/FilmCamera') as typeof import('@/components/FilmCamera'))
-  : null;
+let Film: typeof import('@/components/FilmCamera') | null = null;
+if (USE_VISION_CAMERA) {
+  try {
+    Film = require('@/components/FilmCamera');
+  } catch (error) {
+    // Importing VisionCamera calls into its native module; if that fails, don't take the
+    // whole app down at launch, use expo-camera instead.
+    console.warn('VisionCamera unavailable, using expo-camera:', error);
+  }
+}
 const useVision = Film?.FILM_SHADER_READY === true;
 
 /**
@@ -382,10 +389,10 @@ export default function CameraScreen() {
             <View style={styles.lensRow}>
               {LENSES.map((lens) => {
                 // With VisionCamera a pill works if the device's zoom range reaches it.
+                // (Range unknown, because the camera has not reported one yet: all enabled.)
                 const reachable = useVision
-                  ? !!zoomRange &&
-                    lens.ratio >= zoomRange.min - 0.01 &&
-                    lens.ratio <= zoomRange.max + 0.01
+                  ? !zoomRange ||
+                    (lens.ratio >= zoomRange.min - 0.01 && lens.ratio <= zoomRange.max + 0.01)
                   : lens.enabled;
                 const usable = reachable && facing === 'back';
                 const selected = usable && lens.ratio === lensRatio;

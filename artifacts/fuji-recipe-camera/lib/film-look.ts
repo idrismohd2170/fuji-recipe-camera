@@ -11,7 +11,7 @@ import { gradePixels } from '@/lib/film-grade';
  * social sharing while keeping a shot to seconds instead of minutes.
  */
 const MAX_LONG_EDGE = 2560;
-const OUTPUT_QUALITY = 92;
+export const OUTPUT_QUALITY = 92;
 
 export type RenderProgress = (label: string, fraction: number) => void;
 
