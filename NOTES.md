@@ -14,7 +14,7 @@
 - [x] 6. VisionCamera screen with the live shader, behind `USE_VISION_CAMERA` (expo-camera path kept as fallback); bundles, but never run on a device
 - [x] 7. Real lens selection (0.6 / 1 / 3 / 5) from VisionCamera's device list; `ASSUMED_MAX_ZOOM_RATIO` is no longer used by the VisionCamera path but stays for the expo-camera fallback (see Step 7); never run on a device
 - [x] 8. Full-resolution capture with the shader through Skia (jpeg-js path kept as fallback); bundles, never run on a device
-- [ ] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs
+- [x] 9. Wrap-up: NOTES update, device checklist for every new feature, remaining TODOs (see "Step 9" at the bottom)
 
 
 Read this first. Update it at the end of every session. App lives in `artifacts/fuji-recipe-camera` (Expo). Ignore `artifacts/api-server`, `artifacts/mockup-sandbox` and `lib/*`; the app does not use them.
@@ -253,3 +253,33 @@ The APK workflow run for the Step 4 commit (`eea662c`, run 38897633649) finished
   - the graded photo looks the same as the live preview and as the old jpeg-js result, and is upright (portrait) and not mirrored on the front camera
   - the original shown by hold-to-compare is upright (it is the EXIF-rotated temp file; if it shows sideways, save `photo.toImage()` instead)
   - thumbnails, Gallery, Share and Save to phone with the new photos
+
+### Step 9 (wrap-up)
+
+**CI evidence (not device evidence):** the APK workflow built successfully for the Step 4 commit (`eea662c`) and the Step 7 commit (`5e999e1`, which contains the step 5 to 7 code). The runs for steps 5 and 6 were cancelled by the next push, as designed. The Step 8 commit (`21f9366`) was still queued when this was written; check `gh run list --repo idrismohd2170/fuji-recipe-camera`. Step 8 changed only JS (no native modules), so it cannot break the prebuild, but it has not been through CI yet.
+
+**What changed in this task (steps 1 to 8):**
+- Glass: `components/Glass.tsx` rebuilt (blur opt-in via `GlassScope`, sheen, glow, rim light, bevelled edge, shadow); press lift on glass controls through `PressableScale`; applied to tab bar, camera bars, lens pills, selection bar, review and viewer panels. Real blur is wired in the gallery only.
+- Native camera groundwork: VisionCamera 5.2.3 (+ worklets and skia companions, nitro peers) and `@shopify/react-native-skia` 2.14.0.
+- Shader: `lib/film-shader.ts` (SkSL, uniforms, reference pixel) and `scripts/compare-film-shader.mjs` (max difference 1 level vs `gradePixels`).
+- Camera screen: `components/FilmCamera.tsx` (live shader preview, lens zoom, photo capture, GPU grade) behind `USE_VISION_CAMERA` in `app/(tabs)/camera.tsx`, with expo-camera and jpeg-js as fallbacks.
+- Left alone as required: `lib/film-look.ts` and `lib/film-grade.ts` exports, `constants/recipes.ts`, AsyncStorage keys, `app.json` android.package, the `.github` workflow, the 4:3 viewfinder.
+
+**Nothing in steps 2 to 8 was run on the S24 Ultra.** Everything below is unverified until you test it.
+
+**Manual device checklist (new features only; the older checklist above still applies):**
+1. *Glass (steps 2, 3):* tab bar, camera top bar, lens pills and review panel show the sheen, rim and shadow; pressing a glass button brightens it a little; in the Gallery select mode the bottom bar shows a real blur (if it looks wrong set `REAL_BLUR = false` in `Glass.tsx`); all controls are easy to hit.
+2. *Live shader preview (step 6):* open the Camera tab; the preview appears (not black) within a second or two; it is 4:3 and not stretched; it looks like the chosen recipe (tone, colour, grain, vignette); switching recipe chips changes it at once; frame rate stays smooth and the phone does not heat up in a minute; leaving the tab and coming back restarts it. If it shows the old tint overlay instead, the shader failed to compile and the screen fell back to expo-camera: check the log for the compile error.
+3. *Controls on the new path (step 6):* flash on/off takes a flash shot on the back camera; flip to the front camera and back; grid toggle; double-tapping the shutter saves one photo; permission denied and granted flows; Android back from the Camera tab.
+4. *Lenses (step 7):* with all four pills visible and enabled (0.6, 1x, 3, 5), each one visibly changes the field of view, the 3 and 5 switch to the telephoto lenses, the zoom glides, and the photo is taken at the selected zoom. If a pill is greyed out, note which (see the Step 7 notes for what to check).
+5. *Full-resolution capture (step 8):* take a photo; the review caption reads about 3024 x 4032 (not 2560 px) and the photo is upright; it looks like the live preview; the shot takes only a few seconds; 10 shots in a row do not crash or slow down; with the log open, there is no "GPU grade failed" warning (if there is, the jpeg-js path was used instead and the photo is capped at 2560 px).
+6. *Downstream of capture:* hold-to-compare shows an upright original; Gallery thumbnails, Save to phone, Share and Remove work with the new photos; front-camera photos are not mirrored the wrong way.
+
+**Remaining TODOs:**
+- Run the checklist above on the phone and record what failed. The most likely first problems are: SkSL not compiling in native Skia, black preview, sideways or stretched photos, greyed-out lens pills (`minZoom`/`maxZoom` of 0 at start), and memory at 12 MP.
+- Try a bigger photo size (`CommonResolutions.HIGHEST_4_3`) once 12 MP is stable (`shortcut:` in `FilmCamera.tsx`).
+- Grain is the same pattern on every preview frame; animate it by changing the seed per frame (`shortcut:` in `FilmCamera.tsx`).
+- Camera permission still uses `expo-camera`'s `useCameraPermissions`; switch to VisionCamera's `useCameraPermission` when `expo-camera` is dropped.
+- When the fallback is no longer needed: delete the expo-camera path, `LivePreviewOverlay.tsx`, the JS zoom glide and `ASSUMED_MAX_ZOOM_RATIO` in `camera.tsx` (needs your approval to delete files), and the jpeg-js path if the GPU grade proves reliable.
+- Real blur on the tab bar and over the camera preview (needs a custom tab scene wrapper; the preview is a native surface).
+- Light mode and the pre-existing items under "Known issues" are unchanged.
