@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet } from 'react-native';
-import { useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   AlphaType,
   ColorType,
@@ -16,8 +15,13 @@ import {
   usePhotoOutput,
   type Photo,
 } from 'react-native-vision-camera';
-import { SkiaCamera, type SkiaCameraProps } from 'react-native-vision-camera-skia';
+import {
+  SkiaCamera,
+  type SkiaCameraProps,
+  type SkiaCameraRef,
+} from 'react-native-vision-camera-skia';
 import type { FilmLook } from '@/constants/recipes';
+import { classifyCameraError } from '@/lib/camera-errors';
 import {
   FILM_NOISE_SIZE,
   FILM_SHADER_SKSL,
@@ -45,6 +49,17 @@ const noiseImage = Skia.Image.MakeImage(
   FILM_NOISE_SIZE * 4,
 );
 const paint = Skia.Paint();
+
+/** The lens-pill zoom glide: 8 small steps, about 240 ms. */
+const ZOOM_GLIDE_STEPS = 8;
+const ZOOM_GLIDE_STEP_MS = 30;
+/**
+ * After a rejected zoom call (CameraX: "Camera is not active" while the camera is still
+ * opening), retry this many times, this far apart: about 9 s in total, far longer than a
+ * camera takes to open, then give up quietly (the preview just stays at the current zoom).
+ */
+const ZOOM_MAX_RETRIES = 30;
+const ZOOM_RETRY_MS = 300;
 
 /** False if the shader did not compile; the screen then falls back to expo-camera. */
 export const FILM_SHADER_READY = effect != null && noiseImage != null;
@@ -140,10 +155,105 @@ export function FilmCamera({
     device && device.maxZoom > 0
       ? Math.min(device.maxZoom, Math.max(device.minZoom, lensRatio))
       : 1;
-  const zoom = useSharedValue(1);
+
+  // Errors: CameraX rejects calls that race with the camera starting, stopping or switching
+  // ("Camera is not active"). Those are ignored here (see lib/camera-errors.ts); anything else
+  // is reported to the screen once, which then switches to the fallback camera.
+  //
+  // The screen passes inline arrows for onError / onReady / onZoomRange, so they are read
+  // through a ref: every handler below keeps one stable identity. Otherwise each parent render
+  // would recreate `applyZoom` and its effect would restart the zoom glide and reset the retry
+  // count every time.
+  const callbacks = useRef({ onError, onReady, onZoomRange });
+  callbacks.current = { onError, onReady, onZoomRange };
+  const reportedFatal = useRef(false);
+  const handleError = useCallback((error: Error) => {
+    if (classifyCameraError(error.message) === 'transient') {
+      console.warn('Camera: ignored a transient error:', error.message);
+      return;
+    }
+    if (reportedFatal.current) return;
+    reportedFatal.current = true;
+    callbacks.current.onError(error.message);
+  }, []);
+
+  // Zoom is NOT given to SkiaCamera as a prop. As a prop, VisionCamera calls setZoom as soon as
+  // the controller exists (before the session has started) and on every animation frame, and
+  // CameraX rejects those calls while the camera is not active, which used to end in a
+  // "Camera unavailable" alert. Instead zoom is applied here, only while the camera is started,
+  // as a short glide of small steps. A rejected step stops the glide and retries a bounded number
+  // of times, and the latest target is also re-applied on every start and every reconfiguration
+  // (camera flip), so the camera always converges on the selected lens whichever callback fires.
+  const camera = useRef<SkiaCameraRef>(null);
+  const started = useRef(false);
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const glide = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retries = useRef(0);
+  const stopGlide = useCallback(() => {
+    if (glide.current) clearInterval(glide.current);
+    glide.current = null;
+    if (retry.current) clearTimeout(retry.current);
+    retry.current = null;
+  }, []);
+  const applyZoom = useCallback(() => {
+    stopGlide();
+    const to = targetRef.current;
+    const controller = started.current ? camera.current?.controller : undefined;
+    if (!controller) return; // not started yet: onStarted applies it
+    let from = to;
+    try {
+      from = controller.zoom;
+    } catch {
+      // controller already gone; a retry or the next start re-applies the zoom
+    }
+    const retryLater = () => {
+      stopGlide();
+      if (retries.current >= ZOOM_MAX_RETRIES) return;
+      retries.current += 1;
+      retry.current = setTimeout(applyZoom, ZOOM_RETRY_MS);
+    };
+    let step = 0;
+    glide.current = setInterval(() => {
+      step += 1;
+      const t = Math.min(1, step / ZOOM_GLIDE_STEPS);
+      const value = from + (to - from) * (1 - (1 - t) * (1 - t));
+      const live = started.current ? camera.current?.controller : undefined;
+      if (!live) {
+        retryLater();
+        return;
+      }
+      live
+        .setZoom(t === 1 ? to : value)
+        .then(() => {
+          if (t === 1) retries.current = 0;
+        })
+        .catch((error: Error) => {
+          handleError(error);
+          if (classifyCameraError(error.message) === 'transient') retryLater();
+        });
+      if (t === 1 && glide.current) {
+        clearInterval(glide.current);
+        glide.current = null;
+      }
+    }, ZOOM_GLIDE_STEP_MS);
+  }, [handleError, stopGlide]);
   useEffect(() => {
-    zoom.set(withTiming(target, { duration: 250 }));
-  }, [target, zoom]);
+    retries.current = 0;
+    applyZoom();
+  }, [target, applyZoom]);
+  useEffect(() => stopGlide, [stopGlide]);
+  const handleStarted = useCallback(() => {
+    started.current = true;
+    retries.current = 0;
+    applyZoom();
+    callbacks.current.onReady();
+  }, [applyZoom]);
+  const handleStopped = useCallback(() => {
+    started.current = false;
+    stopGlide();
+  }, [stopGlide]);
 
   // Report the zoom range after any render once the device knows it: on Android it reads 0
   // until CameraX's zoom state is ready, so reading it only at start can miss it.
@@ -153,7 +263,7 @@ export function FilmCamera({
     const range = { min: device.minZoom, max: device.maxZoom };
     if (range.min === reportedRange.current.min && range.max === reportedRange.current.max) return;
     reportedRange.current = range;
-    onZoomRange(range);
+    callbacks.current.onZoomRange(range);
   });
 
   useImperativeHandle(
@@ -219,10 +329,10 @@ export function FilmCamera({
 
   return (
     <SkiaCamera
+      ref={camera}
       style={StyleSheet.absoluteFill}
       device={device ?? facing}
       isActive
-      zoom={zoom}
       outputs={outputs}
       // The photo output defaults to 4:3, so the preview frames are 4:3 too.
       targetResolution={CommonResolutions.FHD_4_3}
@@ -231,8 +341,10 @@ export function FilmCamera({
       // always supported there. shortcut: 'yuv' is lighter but untested with Skia on Android.
       pixelFormat="rgb"
       onFrame={onFrame}
-      onStarted={onReady}
-      onError={(error) => onError(error.message)}
+      onStarted={handleStarted}
+      onStopped={handleStopped}
+      onConfigured={applyZoom}
+      onError={handleError}
     />
   );
 }

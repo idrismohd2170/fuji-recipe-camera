@@ -49,7 +49,7 @@ if (USE_VISION_CAMERA) {
     console.warn('VisionCamera unavailable, using expo-camera:', error);
   }
 }
-const useVision = Film?.FILM_SHADER_READY === true;
+const VISION_AVAILABLE = Film?.FILM_SHADER_READY === true;
 
 /**
  * Lens pills. expo-camera on Android (CameraX) cannot choose a physical lens: `selectedLens`
@@ -134,6 +134,10 @@ export default function CameraScreen() {
   const [flash, setFlash] = useState<FlashMode>('off');
   const [showGrid, setShowGrid] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  // A real (non-transient) VisionCamera error switches this screen to the expo-camera path for
+  // the rest of the session, instead of leaving a dead camera behind an alert.
+  const [visionFailed, setVisionFailed] = useState(false);
+  const useVision = VISION_AVAILABLE && !visionFailed;
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<SavedPhoto | null>(null);
   const [isSavingToPhone, setIsSavingToPhone] = useState(false);
@@ -174,7 +178,7 @@ export default function CameraScreen() {
         if (step >= ZOOM_STEPS) stopZoomAnimation();
       }, ZOOM_STEP_MS);
     },
-    [stopZoomAnimation],
+    [stopZoomAnimation, useVision],
   );
 
   useEffect(() => stopZoomAnimation, [stopZoomAnimation]);
@@ -345,7 +349,15 @@ export default function CameraScreen() {
             onZoomRange={setZoomRange}
             look={activeRecipe.look}
             onReady={() => setIsReady(true)}
-            onError={(message) => Alert.alert('Camera unavailable', message)}
+            onError={(message) => {
+              console.warn('VisionCamera failed, switching to expo-camera:', message);
+              setIsReady(false);
+              setVisionFailed(true);
+              Alert.alert(
+                'Using the basic camera',
+                `The live film preview could not start, so this session uses the basic camera. Your recipe is still applied to every photo.\n\n${message.slice(0, 280)}`,
+              );
+            }}
           />
         )}
         {isFocused && !useVision && (

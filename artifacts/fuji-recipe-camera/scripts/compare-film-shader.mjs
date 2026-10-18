@@ -279,3 +279,46 @@ for (const [name, sksl, flat] of extras) {
     process.exit(1);
   }
 }
+
+// ---------------------------------------------------------------- Part 4
+// Camera error handling guards (see lib/camera-errors.ts and components/FilmCamera.tsx).
+const { classifyCameraError } = await import('../lib/camera-errors.ts');
+console.log('\nPart 4: camera error classification and prop guard');
+const errorCases = [
+  // transient: CameraX saying a call raced with the camera starting, stopping or switching
+  ['transient', 'androidx.camera.core.CameraControl$OperationCanceledException: Camera is not active.'], // device screenshot
+  ['transient', 'Camera is not active.'],
+  ['transient', 'java.util.concurrent.CancellationException: Camera closed'],
+  // fatal: the camera cannot work, must be shown and trigger the fallback camera
+  ['fatal', 'java.lang.IllegalArgumentException: androidx.camera.core.internal.CameraUseCaseAdapter$CameraException: java.lang.IllegalArgumentException: PRIVATE format with resolution 1440x1080 is not supported for ImageAnalysis on the device.'], // device screenshot
+  ['fatal', 'Camera permission denied'],
+  ['fatal', 'The camera is in use by another app'],
+  ['fatal', ''],
+  ['fatal', undefined],
+];
+for (const [expected, message] of errorCases) {
+  const actual = classifyCameraError(message);
+  if (actual !== expected) {
+    console.error(`FAILED: classifyCameraError(${JSON.stringify(message)}) = ${actual}, expected ${expected}.`);
+    process.exit(1);
+  }
+}
+console.log(`classifyCameraError: ${errorCases.length} cases ok.`);
+
+// VisionCamera runs setZoom / setExposureBias / setTorchMode / configure from React effects as
+// soon as the controller exists, before the session has started. CameraX rejects them with
+// "Camera is not active". FilmCamera must therefore never pass these props to SkiaCamera; zoom
+// is applied by FilmCamera itself, only while the camera is started.
+const filmSource = fs.readFileSync(path.join(here, '..', 'components', 'FilmCamera.tsx'), 'utf8');
+const skiaBlock = filmSource.match(/<SkiaCamera[\s\S]*?\/>/)?.[0];
+if (!skiaBlock) {
+  console.error('FAILED: could not find the <SkiaCamera ... /> element in components/FilmCamera.tsx.');
+  process.exit(1);
+}
+const banned = ['zoom', 'exposure', 'torchMode', 'enableDistortionCorrection', 'enableLowLightBoost', 'enableSmoothAutoFocus'];
+const used = banned.filter((prop) => new RegExp(`^\\s+${prop}=`, 'm').test(skiaBlock));
+if (used.length > 0) {
+  console.error(`FAILED: <SkiaCamera> must not receive ${used.join(', ')} (CameraX rejects them before the camera is active).`);
+  process.exit(1);
+}
+console.log('SkiaCamera prop guard ok.');
