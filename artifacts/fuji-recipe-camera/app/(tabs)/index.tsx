@@ -20,6 +20,19 @@ import { getRecipeImage } from '@/constants/recipe-images';
 import { fonts, type } from '@/constants/typography';
 import { useAppState } from '@/context/AppState';
 
+/**
+ * Soft flowing colour behind the list, so the glass tab bar has something to catch the light
+ * (components/Aurora.tsx). Required lazily and checked: if Skia or the shader fails it is just
+ * skipped. Set to null to switch it off. [unverified on device]
+ */
+let AuroraImpl: typeof import('@/components/Aurora').Aurora | null = null;
+try {
+  const aurora: typeof import('@/components/Aurora') = require('@/components/Aurora');
+  if (aurora.AURORA_READY) AuroraImpl = aurora.Aurora;
+} catch (error) {
+  console.warn('Aurora unavailable, skipping it:', error);
+}
+
 /** Space reserved so content clears the floating tab bar. */
 const TAB_BAR_CLEARANCE = 104;
 
@@ -140,6 +153,7 @@ export default function RecipeLibraryScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      {AuroraImpl && <AuroraImpl />}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{

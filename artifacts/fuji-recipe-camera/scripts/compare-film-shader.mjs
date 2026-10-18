@@ -256,3 +256,26 @@ if (shaderVsRef > 1 || shaderVsGrade > MAX_DIFF || shaderVsGradeNoGrain > MAX_DI
   console.error('FAILED: the SkSL output differs from the reference or from gradePixels.');
   process.exit(1);
 }
+
+// ---------------------------------------------------------------- Part 3
+// The glass lighting and aurora shaders must compile and take exactly the uniforms we pass.
+const { GLASS_LIGHT_DIR, GLASS_SKSL, flattenGlassUniforms } = await import('../lib/glass-shader.ts');
+const { AURORA_COLORS, AURORA_SKSL, flattenAuroraUniforms } = await import('../lib/aurora-shader.ts');
+console.log('\nPart 3: glass and aurora SkSL compile');
+const extras = [
+  ['glass', GLASS_SKSL, flattenGlassUniforms({ size: [200, 60], radius: 28, lightDir: GLASS_LIGHT_DIR, press: 0, dark: 1, strength: 1 })],
+  ['aurora', AURORA_SKSL, flattenAuroraUniforms({ res: [100, 200], time: 1, ...AURORA_COLORS, intensity: 0.8 })],
+];
+for (const [name, sksl, flat] of extras) {
+  const fx = ck.RuntimeEffect.Make(sksl, (error) => console.log(`${name} SkSL compile error:`, error));
+  if (!fx) {
+    console.error(`FAILED: the ${name} SkSL did not compile.`);
+    process.exit(1);
+  }
+  const count = fx.getUniformFloatCount();
+  console.log(`${name}: compiled, ${count} uniform floats expected, ${flat.length} passed.`);
+  if (count !== flat.length) {
+    console.error(`FAILED: ${name} uniform layout mismatch.`);
+    process.exit(1);
+  }
+}

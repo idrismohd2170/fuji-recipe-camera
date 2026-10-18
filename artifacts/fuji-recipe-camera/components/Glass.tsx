@@ -13,6 +13,26 @@ import { useColors } from '@/hooks/useColors';
  */
 const REAL_BLUR = true;
 
+/**
+ * Panels with a radius of at least this get their edge lighting from a Skia shader
+ * (components/GlassLight.tsx); smaller controls (round buttons, pills, badges) keep the cheap
+ * layered gradients, because each shader panel is its own small Skia canvas and the camera
+ * screen already runs one for the live preview. Set SHADER_GLASS to false to use the gradients
+ * everywhere. The module is required lazily and checked, so a Skia or shader failure falls back
+ * to the gradients instead of taking the app down. [unverified on device]
+ */
+const SHADER_GLASS = true;
+const SHADER_MIN_RADIUS = 24;
+let GlassLightImpl: typeof import('@/components/GlassLight').GlassLight | null = null;
+if (SHADER_GLASS) {
+  try {
+    const light: typeof import('@/components/GlassLight') = require('@/components/GlassLight');
+    if (light.GLASS_LIGHT_READY) GlassLightImpl = light.GlassLight;
+  } catch (error) {
+    console.warn('Glass shader unavailable, using gradients:', error);
+  }
+}
+
 type BlurTargetRef = RefObject<View | null>;
 const BlurTargetContext = createContext<BlurTargetRef | null>(null);
 
@@ -74,10 +94,11 @@ type Props = {
  * Liquid-glass surface, from back to front:
  *   1. blur (real on Android inside a GlassScope, otherwise a translucent fill)
  *   2. tinted body fill
- *   3. specular sheen: a bright band fading down from the top edge
- *   4. inner glow: a faint light rising from the bottom edge
- *   5. top rim light: a thin line, brightest in the middle, fading to the corners
- *   6. bevelled hairline: brighter on the top edge, dimmer on the bottom
+ *   3. edge lighting: a Skia shader on panels with radius >= SHADER_MIN_RADIUS (rim, bevel,
+ *      bounce light, inner tray line, sheen, adapted from liquid-glass-js); otherwise layered
+ *      gradients: a sheen fading down from the top, an inner glow rising from the bottom, a
+ *      top rim line and a bevelled hairline
+ *   4. press lift: a white overlay that follows the PressableScale around it
  */
 export function Glass({
   children,
@@ -94,6 +115,7 @@ export function Glass({
   const liftStyle = useAnimatedStyle(() => ({ opacity: (pressed?.value ?? 0) * 0.16 }));
   const dark = forceDark || colors.blurTint === 'dark';
   const realBlur = Platform.OS === 'android' && REAL_BLUR && !!blurTarget;
+  const shaderLight = GlassLightImpl !== null && radius >= SHADER_MIN_RADIUS;
 
   const sheen = dark ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.70)';
   const glow = dark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.35)';
@@ -129,41 +151,47 @@ export function Glass({
         style={StyleSheet.absoluteFill}
       />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: body }]} />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[sheen, 'rgba(255,255,255,0)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={styles.sheen}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={['rgba(255,255,255,0)', glow]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={styles.glow}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={['rgba(255,255,255,0)', rim, 'rgba(255,255,255,0)']}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={[styles.rim, { left: radius * 0.6, right: radius * 0.6 }]}
-      />
-      <View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFill,
-          styles.edge,
-          {
-            borderRadius: radius,
-            borderTopColor: edgeTop,
-            borderLeftColor: edgeSide,
-            borderRightColor: edgeSide,
-            borderBottomColor: edgeBottom,
-          },
-        ]}
-      />
+      {shaderLight && GlassLightImpl ? (
+        <GlassLightImpl radius={radius} dark={dark} press={pressed} />
+      ) : (
+        <>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[sheen, 'rgba(255,255,255,0)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.sheen}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(255,255,255,0)', glow]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.glow}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(255,255,255,0)', rim, 'rgba(255,255,255,0)']}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={[styles.rim, { left: radius * 0.6, right: radius * 0.6 }]}
+          />
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              styles.edge,
+              {
+                borderRadius: radius,
+                borderTopColor: edgeTop,
+                borderLeftColor: edgeSide,
+                borderRightColor: edgeSide,
+                borderBottomColor: edgeBottom,
+              },
+            ]}
+          />
+        </>
+      )}
       {pressed && (
         <Animated.View
           pointerEvents="none"
